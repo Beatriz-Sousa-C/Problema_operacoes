@@ -66,6 +66,7 @@ export function Resumo({ ctx, irPara }: { ctx: Contexto; irPara: (aba: string) =
           Concentrações que não são acaso (teste estatístico com correção para comparações múltiplas). Cada uma pede uma mudança de processo, não
           mais tratativas.
         </p>
+        <div className="tabela-rolagem">
         <table className="tabela tabela--compacta">
           <thead>
             <tr>
@@ -93,6 +94,7 @@ export function Resumo({ ctx, irPara }: { ctx: Contexto; irPara: (aba: string) =
             ))}
           </tbody>
         </table>
+        </div>
         <button className="botao-texto" onClick={() => irPara("causas")}>
           Ver evidências e planos de correção
         </button>

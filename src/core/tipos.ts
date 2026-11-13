@@ -78,6 +78,8 @@ export interface ExcecaoAnalisada extends ExcecaoBruta {
   atrasoVsContrato: number;
   clienteVip: boolean;
   ticketMedio: number;
+  /** Compras por ano esperadas (frequência histórica, com piso e teto) */
+  frequenciaAnual: number;
   /** Valor em jogo se o cliente cancelar: reembolso (ou margem perdida) + recompra perdida */
   valorEmJogo: number;
   componenteReembolso: number;

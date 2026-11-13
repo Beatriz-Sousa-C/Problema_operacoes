@@ -27,6 +27,10 @@ export interface Parametros {
     probabilidadeDemais: number;
     /** Fator aplicado à recompra quando a exceção é mal resolvida */
     fatorMalResolvida: number;
+    /** Histórico mínimo (meses) usado no cálculo de frequência: evita a ilusão de cliente novo */
+    mesesMinimosHistorico: number;
+    /** Teto de compras por ano: protege contra revendedores e erros de cadastro */
+    compraMaximaPorAno: number;
   };
 }
 
@@ -48,6 +52,8 @@ export const PARAMETROS: Parametros = {
     probabilidadeVip: 0.7,
     probabilidadeDemais: 0.28,
     fatorMalResolvida: 0.5,
+    mesesMinimosHistorico: 6,
+    compraMaximaPorAno: 24,
   },
 };
 

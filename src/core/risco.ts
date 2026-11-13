@@ -8,6 +8,8 @@
  *    desfaz o risco que o atraso já criou.
  *  - Se o cliente cancela, a empresa perde o reembolso (valor pago) e a
  *    exceção conta como mal resolvida: a chance de recompra cai pela metade.
+ *    O que se perde é a margem das compras dos próximos 12 meses, estimadas
+ *    pela frequência histórica do cliente (com piso de histórico e teto).
  *  - Pagamento pendente não tem reembolso (o cliente não pagou): o que se
  *    perde é a margem da venda.
  *  - Atraso já entregue tem perda travada: a fila não muda o resultado.
@@ -22,6 +24,22 @@ export function probabilidadeCancelamento(atrasoDiasUteis: number, p: Parametros
     if (atrasoDiasUteis >= f.min && atrasoDiasUteis <= f.max) return f.probabilidade;
   }
   return 0;
+}
+
+const DIAS_POR_MES = 30.44;
+
+/** Compras por ano esperadas para o cliente, com as proteções dos parâmetros. */
+export function comprasPorAno(
+  nPedidos: number,
+  dataPrimeiroPedido: string,
+  dataReferencia: string,
+  p: Parametros = PARAMETROS,
+): number {
+  const meses = Math.max(
+    p.recompra.mesesMinimosHistorico,
+    (paraDia(dataReferencia) - paraDia(dataPrimeiroPedido)) / DIAS_POR_MES,
+  );
+  return Math.min(p.recompra.compraMaximaPorAno, (nPedidos / meses) * 12);
 }
 
 export interface Analise {
@@ -87,7 +105,9 @@ export function analisar(base: BaseDados, p: Parametros = PARAMETROS): Analise {
     const ticketMedio = cliente.receita_acumulada / Math.max(1, cliente.n_pedidos);
     const margem = 1 - p.cmv;
     const probRecompra = clienteVip ? p.recompra.probabilidadeVip : p.recompra.probabilidadeDemais;
-    const componenteRecompra = probRecompra * (1 - p.recompra.fatorMalResolvida) * ticketMedio * margem;
+    const frequenciaAnual = comprasPorAno(cliente.n_pedidos, cliente.data_primeiro_pedido, p.dataReferencia, p);
+    const componenteRecompra =
+      probRecompra * (1 - p.recompra.fatorMalResolvida) * frequenciaAnual * ticketMedio * margem;
     const componenteReembolso = e.tipo_excecao === "pagamento_pendente" ? e.valor * margem : e.valor;
     const valorEmJogo = componenteReembolso + componenteRecompra;
 
@@ -111,6 +131,7 @@ export function analisar(base: BaseDados, p: Parametros = PARAMETROS): Analise {
       atrasoVsContrato,
       clienteVip,
       ticketMedio,
+      frequenciaAnual,
       valorEmJogo,
       componenteReembolso,
       componenteRecompra,

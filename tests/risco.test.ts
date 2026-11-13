@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analisar, probabilidadeCancelamento, removerDuplicatas, type BaseDados, type ExcecaoBruta } from "@/core";
+import { analisar, comprasPorAno, probabilidadeCancelamento, removerDuplicatas, type BaseDados, type ExcecaoBruta } from "@/core";
 import { baseReal } from "./carregar";
 
 const excecao = (parcial: Partial<ExcecaoBruta>): ExcecaoBruta => ({
@@ -37,9 +37,12 @@ describe("analisar", () => {
     expect(e.prazoContratado).toBe("2026-09-18");
     expect(e.atrasoAtual).toBe(8); // 21..25 (5) + 28..30 (3)
     expect(e.probabilidadeCancelamentoAtual).toBe(0.22);
-    // recompra: 28% × 50% × ticket 100 × margem 76%
-    expect(e.componenteRecompra).toBeCloseTo(0.28 * 0.5 * 100 * 0.76);
-    expect(e.valorEmJogo).toBeCloseTo(100 + 10.64);
+    // cliente desde 01/01/2025 (~20,9 meses), 5 pedidos → ~2,87 compras/ano
+    const freq = (5 / ((Date.UTC(2026, 8, 30) - Date.UTC(2025, 0, 1)) / 86_400_000 / 30.44)) * 12;
+    expect(e.frequenciaAnual).toBeCloseTo(freq);
+    // recompra: 28% × 50% × compras/ano × ticket 100 × margem 76%
+    expect(e.componenteRecompra).toBeCloseTo(0.28 * 0.5 * freq * 100 * 0.76);
+    expect(e.valorEmJogo).toBeCloseTo(100 + e.componenteRecompra);
     expect(e.custoReenvio).toBeCloseTo(24 + 12);
   });
 
@@ -58,7 +61,17 @@ describe("analisar", () => {
   it("cliente acima de R$ 1.500 usa recompra de 70%", () => {
     const [e] = analisar(base([excecao({})], 2000, 10)).excecoes;
     expect(e.clienteVip).toBe(true);
-    expect(e.componenteRecompra).toBeCloseTo(0.7 * 0.5 * 200 * 0.76);
+    expect(e.componenteRecompra).toBeCloseTo(0.7 * 0.5 * e.frequenciaAnual * 200 * 0.76);
+  });
+});
+
+describe("comprasPorAno", () => {
+  it("usa piso de 6 meses de histórico para clientes novos", () => {
+    // 2 pedidos em ~1 mês contariam como 24/ano; com o piso, 2 / 6 × 12 = 4
+    expect(comprasPorAno(2, "2026-09-01", "2026-09-30")).toBeCloseTo(4);
+  });
+  it("limita a 24 compras por ano", () => {
+    expect(comprasPorAno(34, "2026-07-24", "2026-09-30")).toBe(24);
   });
 
   it("na base real: 42 duplicatas, 2.000 exceções e 14 dias de fila", () => {

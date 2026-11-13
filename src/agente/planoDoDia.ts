@@ -15,6 +15,7 @@ import { avaliar, investigarExcecao, type ResultadoInvestigacao } from "./invest
 import { PROMPT_PLANO_CORRECAO, PROMPT_PLANO_GRUPO } from "./prompts";
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
+const num1 = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
 
 export interface Grupo {
   chave: string;
@@ -297,6 +298,77 @@ export function causasParaCorrecao(ctx: Contexto): CausaParaCorrecao[] {
   return lista;
 }
 
+/** Plano padrão por tipo de causa: rede de segurança quando a IA está indisponível. */
+export function planoCorrecaoPorRegras(c: CausaParaCorrecao, ctx: Contexto): PlanoCorrecao {
+  const base = { causa: c.id, fonte: "regras" as const };
+  if (c.id === "auditoria-prazo") {
+    return {
+      ...base,
+      responsavel: "Tecnologia (checkout) e Operações",
+      diagnostico: `O checkout soma o prazo da transportadora em dias corridos. A promessa sai em média ${num1(ctx.auditoria.diasPrometidosAMenosMedio)} dia útil antes do contrato, e parte dos "atrasos" registrados está dentro do prazo contratado.`,
+      acoes_imediatas: [
+        "Corrigir o cálculo: 1 dia útil de separação + SLA em dias úteis, com calendário de feriados nacionais.",
+        "Reclassificar os atrasos que estão dentro do prazo contratado para não cobrar a transportadora indevidamente.",
+      ],
+      acoes_estruturais: ["Teste automatizado do cálculo de prazo com sextas, fins de semana e feriados.", "Auditoria mensal: data prometida contra a regra."],
+      indicador_de_sucesso: "100% das datas prometidas iguais à regra e queda das exceções de atraso dentro do contrato para zero.",
+    };
+  }
+  const causa = ctx.causas.find((x) => x.id === c.id);
+  const onde = causa ? `${causa.dimensao}: ${causa.grupo}` : c.titulo;
+  const vezes = causa ? `${num1(causa.lift)} vezes acima do resto da operação` : "acima do normal";
+  const porDimensao: Record<string, { responsavel: string; imediatas: string[]; estruturais: string[] }> = {
+    Impressora: {
+      responsavel: "Manutenção e produção Gocase",
+      imediatas: ["Parar a impressora para calibração e inspeção de cabeçote.", "Redistribuir a fila de personalização para as outras máquinas do CD."],
+      estruturais: ["Checklist de calibração por turno.", "Alerta automático quando a taxa de falha da máquina passar do dobro da média."],
+    },
+    "CD e turno": {
+      responsavel: "Gestão do CD",
+      imediatas: ["Conferência de saída (peso ou leitura) nos pedidos do turno até a causa ser corrigida.", "Revisar com o líder do turno como os brindes de campanha são separados."],
+      estruturais: ["Brinde como item no picking, não separado à parte.", "Indicador diário de item faltante por turno."],
+    },
+    Transportadora: {
+      responsavel: "Logística (gestão de transportadoras)",
+      imediatas: ["Abrir sinistro em lote com a lista de pedidos.", "Revisar embalagem e manuseio exigidos em contrato."],
+      estruturais: ["Cláusula de nível de serviço com penalidade.", "Reduzir a participação da transportadora até a taxa voltar ao normal."],
+    },
+    "Transportadora e região": {
+      responsavel: "Logística (gestão de transportadoras)",
+      imediatas: ["Cobrar plano de ação da transportadora para a região com a lista de pedidos.", "Mover os novos pedidos da região para a segunda opção de transportadora."],
+      estruturais: ["Escolha de transportadora por região com base em desempenho, não só em frete.", "Revisão mensal de desempenho por região."],
+    },
+    Lote: {
+      responsavel: "Qualidade",
+      imediatas: ["Bloquear o lote no estoque e reenviar de outro lote.", "Acionar o fornecedor com amostras."],
+      estruturais: ["Inspeção de recebimento por amostragem para a linha.", "Rastreio de lote na expedição."],
+    },
+    SKU: {
+      responsavel: "Qualidade e Planejamento",
+      imediatas: ["Investigar o produto com o fornecedor e bloquear o lote suspeito.", "Revisar a embalagem de envio do item."],
+      estruturais: ["Inspeção de recebimento para o SKU.", "Acompanhar a taxa de exceção do SKU semanalmente."],
+    },
+    Marca: {
+      responsavel: "Embalagem e Logística",
+      imediatas: ["Revisar a proteção de envio dos itens frágeis da marca.", "Testar queda com a embalagem atual."],
+      estruturais: ["Especificação de embalagem por tipo de frasco.", "Indicador de avaria por marca."],
+    },
+  };
+  const modelo = porDimensao[causa?.dimensao ?? ""] ?? {
+    responsavel: "Operações",
+    imediatas: ["Investigar a origem com a área responsável."],
+    estruturais: ["Acompanhar a taxa semanalmente."],
+  };
+  return {
+    ...base,
+    responsavel: modelo.responsavel,
+    diagnostico: `${onde} concentra ${causa?.observado ?? "várias"} exceções do tipo "${causa ? POLITICA[causa.tipo].descricao.toLowerCase() : "único"}", ${vezes}.`,
+    acoes_imediatas: modelo.imediatas,
+    acoes_estruturais: modelo.estruturais,
+    indicador_de_sucesso: "A participação desse tipo de exceção no grupo volta ao nível do resto da operação.",
+  };
+}
+
 export async function gerarPlanosCorrecao(ctx: Contexto, llm: ClienteLlm | null): Promise<PlanoCorrecao[]> {
   const saida: PlanoCorrecao[] = [];
   for (const c of causasParaCorrecao(ctx)) {
@@ -318,17 +390,7 @@ export async function gerarPlanosCorrecao(ctx: Contexto, llm: ClienteLlm | null)
         /* cai nas regras abaixo */
       }
     }
-    saida.push(
-      plano ?? {
-        causa: c.id,
-        fonte: "regras",
-        responsavel: String(c.dados.onde),
-        diagnostico: `Concentração anormal de exceções em ${c.titulo}.`,
-        acoes_imediatas: ["Investigar a origem com a área responsável."],
-        acoes_estruturais: ["Monitorar a taxa semanalmente."],
-        indicador_de_sucesso: "Taxa do grupo igual à do restante da operação.",
-      },
-    );
+    saida.push(plano ?? planoCorrecaoPorRegras(c, ctx));
   }
   return saida;
 }

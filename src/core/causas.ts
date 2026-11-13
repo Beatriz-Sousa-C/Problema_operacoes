@@ -18,11 +18,11 @@ export interface Dimensao {
 
 export const DIMENSOES: Dimensao[] = [
   { chave: "maquina", rotulo: "Impressora", extrair: (e) => e.maquina },
-  { chave: "cd_turno", rotulo: "CD e turno", extrair: (e) => `${e.cd} · ${e.turno}` },
+  { chave: "cd_turno", rotulo: "CD e turno", extrair: (e) => `${e.cd}, turno da ${e.turno}` },
   { chave: "transportadora", rotulo: "Transportadora", extrair: (e) => e.transportadora },
-  { chave: "transportadora_regiao", rotulo: "Transportadora e região", extrair: (e) => `${e.transportadora} · ${e.regiao}` },
+  { chave: "transportadora_regiao", rotulo: "Transportadora e região", extrair: (e) => `${e.transportadora} no ${e.regiao}` },
   { chave: "lote", rotulo: "Lote", extrair: (e) => e.lote_produto },
-  { chave: "sku", rotulo: "SKU", extrair: (e) => `${e.sku} · ${e.descricao_produto}` },
+  { chave: "sku", rotulo: "SKU", extrair: (e) => `${e.sku} (${e.descricao_produto})` },
   { chave: "marca", rotulo: "Marca", extrair: (e) => e.marca },
   { chave: "brinde", rotulo: "Pedido com brinde", extrair: (e) => (e.brinde_no_pedido ? "com brinde" : "sem brinde") },
 ];

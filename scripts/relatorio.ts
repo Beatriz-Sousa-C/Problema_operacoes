@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { analisar, auditarPrazos, carregarBase, detectarCausas, simular, PARAMETROS } from "../src/core";
 
-const ler = (f: string) => readFileSync(join(__dirname, "..", "data", f), "utf8");
+const ler = (f: string) => readFileSync(join(__dirname, "..", "public", "dados", f), "utf8");
 const base = carregarBase({ excecoes: ler("pedidos_excecao.csv"), clientes: ler("clientes.csv"), transportadoras: ler("transportadoras.csv") });
 const a = analisar(base);
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });

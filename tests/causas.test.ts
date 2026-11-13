@@ -17,8 +17,8 @@ describe("testeDuasProporcoes", () => {
 describe("detectarCausas na base real", () => {
   it.each([
     ["IMP-02", "falha_personalizacao"],
-    ["CD2 · noite", "item_faltante"],
-    ["Rota Express · Nordeste", "atraso_entrega"],
+    ["CD2, turno da noite", "item_faltante"],
+    ["Rota Express no Nordeste", "atraso_entrega"],
     ["Carga Norte", "avaria_transporte"],
     ["APC-1067", "vazamento_produto"],
     ["L2607-B", "vazamento_produto"],

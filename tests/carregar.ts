@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { carregarBase } from "@/core";
 
-const ler = (f: string) => readFileSync(join(__dirname, "..", "data", f), "utf8");
+const ler = (f: string) => readFileSync(join(__dirname, "..", "public", "dados", f), "utf8");
 
 export const baseReal = () =>
   carregarBase({

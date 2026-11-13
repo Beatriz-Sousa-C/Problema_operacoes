@@ -99,16 +99,19 @@ describe("regras de autonomia", () => {
   it("ação com custo para cliente de alto valor precisa de aprovação", () => {
     expect(avaliarAcao("reenviar", vip("item_faltante")).status).toBe("aguardando_aprovacao");
   });
-  it("reenvio barato é automático e caro precisa de aprovação", () => {
-    expect(avaliarAcao("reenviar", comum("item_faltante", (c) => c <= 65)).status).toBe("automatica");
+  it("toda ação com dinheiro precisa de aprovação, de qualquer valor", () => {
+    expect(avaliarAcao("reenviar", comum("item_faltante", (c) => c <= 65)).status).toBe("aguardando_aprovacao");
     expect(avaliarAcao("reenviar", comum("item_faltante", (c) => c > 65)).status).toBe("aguardando_aprovacao");
+    expect(avaliarAcao("oferecer_substituto", comum("ruptura_pos_venda")).status).toBe("aguardando_aprovacao");
+    expect(avaliarAcao("cancelar_pedido", comum("pagamento_pendente")).status).toBe("aguardando_aprovacao");
   });
   it("avaria pede foto antes do reenvio, e o pedido de foto é incluído mesmo se o modelo esquecer", () => {
     const e = comum("avaria_transporte", (c) => c <= 65);
     const av = avaliarAcoes(["reenviar"], e);
     expect(av.map((a) => a.acao)).toEqual(["solicitar_foto", "reenviar"]);
     expect(av[0].status).toBe("automatica");
-    expect(av[1]).toMatchObject({ status: "aguarda_foto", statusAposFoto: "automatica" });
+    // Primeiro a foto, depois a aprovação humana (regra nova: todo dinheiro passa por uma pessoa)
+    expect(av[1]).toMatchObject({ status: "aguarda_foto", statusAposFoto: "aguardando_aprovacao" });
   });
 });
 
@@ -131,6 +134,12 @@ describe("mensagens ao cliente", () => {
     expect(ms.map((m) => m.status)).toEqual(["automatica", "aguarda_foto"]);
     expect(ms[0].texto).toContain("foto");
     expect(ms[0].texto).not.toContain("reenviar");
+  });
+  it("a mensagem da solução depende de todas as ações com dinheiro que anuncia", () => {
+    const e = todas.find((x) => !x.clienteVip && x.tipo_excecao === "avaria_transporte")!;
+    const ms = planejarMensagens("Vamos reenviar e reembolsar.", avaliarAcoes(["reenviar", "reembolsar"], e), e);
+    expect(ms.map((m) => m.status)).toEqual(["automatica", "aguarda_foto"]);
+    expect(ms[1]).toMatchObject({ exigeFoto: true, dependeDe: ["reenviar", "reembolsar"] });
   });
 });
 

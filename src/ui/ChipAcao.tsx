@@ -1,14 +1,13 @@
-import { ROTULO_ACAO, type AvaliacaoAcao } from "@/core";
-import { brl2, ICONE_STATUS, ROTULO_STATUS } from "./formato";
+import { estadoAcao, ROTULO_ACAO, type AvaliacaoAcao, type RegistroTratativa } from "@/core";
+import { brl2, CLASSE_ESTADO, ICONE_ESTADO, ROTULO_ESTADO } from "./formato";
 
-export function ChipAcao({ avaliacao: a, decisao }: { avaliacao: AvaliacaoAcao; decisao?: "aprovada" | "recusada" }) {
-  const estado = decisao ?? a.status;
-  const rotuloEstado = decisao === "aprovada" ? "Aprovada" : decisao === "recusada" ? "Recusada" : ROTULO_STATUS[a.status];
-  const icone = decisao === "aprovada" ? "✓" : decisao === "recusada" ? "×" : ICONE_STATUS[a.status];
+export function ChipAcao({ avaliacao: a, registro }: { avaliacao: AvaliacaoAcao; registro?: RegistroTratativa }) {
+  const estado = estadoAcao(a, registro);
+  const rotuloEstado = ROTULO_ESTADO[estado];
   return (
-    <span className={`chip chip--${estado}`} title={`${rotuloEstado}. ${a.motivo}${a.custoEstimado ? `. Custo: ${brl2(a.custoEstimado)}` : ""}`}>
+    <span className={`chip chip--${CLASSE_ESTADO[estado]}`} title={`${rotuloEstado}. ${a.motivo}${a.custoEstimado ? `. Custo: ${brl2(a.custoEstimado)}` : ""}`}>
       <span aria-hidden="true" className="chip__icone">
-        {icone}
+        {ICONE_ESTADO[estado]}
       </span>
       {ROTULO_ACAO[a.acao]}
       <span className="sr-only">: {rotuloEstado}</span>

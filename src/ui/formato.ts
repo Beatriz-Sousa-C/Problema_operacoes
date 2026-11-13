@@ -1,4 +1,4 @@
-import type { Acao, StatusAcao, TipoExcecao } from "@/core";
+import type { Acao, EstadoAcao, StatusAcao, TipoExcecao } from "@/core";
 
 const moeda0 = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 const moeda2 = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -39,6 +39,34 @@ export const ICONE_STATUS: Record<StatusAcao, string> = {
   aguarda_foto: "◔",
   aguardando_aprovacao: "!",
   bloqueada: "×",
+};
+
+/** Estado de execução (depois de foto e decisões): rótulo, ícone e classe do chip */
+export const ROTULO_ESTADO: Record<EstadoAcao, string> = {
+  liberada: "Automática",
+  aguarda_foto: "Depois da foto do cliente",
+  aguarda_aprovacao: "Precisa de aprovação",
+  aprovada: "Aprovada",
+  recusada: "Recusada",
+  bloqueada: "Bloqueada pela política",
+};
+
+export const ICONE_ESTADO: Record<EstadoAcao, string> = {
+  liberada: "✓",
+  aguarda_foto: "◔",
+  aguarda_aprovacao: "!",
+  aprovada: "✓",
+  recusada: "×",
+  bloqueada: "×",
+};
+
+export const CLASSE_ESTADO: Record<EstadoAcao, string> = {
+  liberada: "automatica",
+  aguarda_foto: "aguarda_foto",
+  aguarda_aprovacao: "aguardando_aprovacao",
+  aprovada: "aprovada",
+  recusada: "recusada",
+  bloqueada: "bloqueada",
 };
 
 export type { Acao };

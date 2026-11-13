@@ -7,3 +7,4 @@ export * from "./priorizacao";
 export * from "./simulacao";
 export * from "./causas";
 export * from "./politica";
+export * from "./execucao";

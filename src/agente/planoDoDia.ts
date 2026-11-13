@@ -164,7 +164,15 @@ export interface PlanoDoDia {
 const preencher = (modelo: string, e: ExcecaoAnalisada) =>
   modelo.replaceAll("{pedido}", e.order_id).replaceAll("{produto}", e.descricao_produto);
 
-async function decidirGrupo(llm: ClienteLlm | null, g: Grupo): Promise<{ plano: PlanoGrupo; fonte: "agente" | "regras"; modelo?: string; tokens: number; aviso?: string }> {
+export interface DecisaoGrupo {
+  plano: PlanoGrupo;
+  fonte: "agente" | "regras";
+  modelo?: string;
+  tokens: number;
+  aviso?: string;
+}
+
+export async function decidirGrupo(llm: ClienteLlm | null, g: Grupo): Promise<DecisaoGrupo> {
   if (!llm) return { plano: planoGrupoPorRegras(g), fonte: "regras", tokens: 0, aviso: "IA não configurada" };
   try {
     const r = await llm.completar({
@@ -184,6 +192,35 @@ async function decidirGrupo(llm: ClienteLlm | null, g: Grupo): Promise<{ plano: 
   }
 }
 
+/** Resultado do grupo para exibir e as tratativas de cada pedido dele. */
+export function aplicarDecisaoGrupo(g: Grupo, d: DecisaoGrupo): { grupo: ResultadoGrupo; tratativas: TratativaPedido[] } {
+  const grupo: ResultadoGrupo = {
+    chave: g.chave,
+    tipo: g.tipo,
+    causa: g.causa ? `${g.causa.dimensao}: ${g.causa.grupo}` : null,
+    pedidos: g.membros.length,
+    fonte: d.fonte,
+    plano: d.plano,
+    aviso: d.aviso,
+  };
+  const tratativas = g.membros.map((e): TratativaPedido => {
+    const { avaliacoes, mensagens } = avaliar({ ...d.plano, mensagem_cliente: preencher(d.plano.modelo_mensagem_cliente, e), confianca: "media" }, e);
+    return { id: e.id, grupo: g.chave, acoes: avaliacoes, mensagens };
+  });
+  return { grupo, tratativas };
+}
+
+/** A investigação individual do agente substitui a decisão do grupo para o pedido. */
+export function aplicarInvestigacao(tratativas: TratativaPedido[], inv: ResultadoInvestigacao) {
+  const t = tratativas.find((x) => x.id === inv.id);
+  if (!t) return;
+  if (inv.fonte === "agente") {
+    t.acoes = inv.avaliacoes;
+    t.mensagens = inv.mensagens;
+  }
+  t.investigacao = inv;
+}
+
 export async function gerarPlanoDoDia(
   ctx: Contexto,
   llm: ClienteLlm | null,
@@ -201,14 +238,9 @@ export async function gerarPlanoDoDia(
     const d = await decidirGrupo(llm, g);
     tokens += d.tokens;
     modelo ??= d.modelo;
-    resultados.push({ chave: g.chave, tipo: g.tipo, causa: g.causa ? `${g.causa.dimensao}: ${g.causa.grupo}` : null, pedidos: g.membros.length, fonte: d.fonte, plano: d.plano, aviso: d.aviso });
-    for (const e of g.membros) {
-      const { avaliacoes, mensagens } = avaliar(
-        { ...d.plano, mensagem_cliente: preencher(d.plano.modelo_mensagem_cliente, e), confianca: "media" },
-        e,
-      );
-      tratativas.push({ id: e.id, grupo: g.chave, acoes: avaliacoes, mensagens });
-    }
+    const r = aplicarDecisaoGrupo(g, d);
+    resultados.push(r.grupo);
+    tratativas.push(...r.tratativas);
   }
 
   if (llm) {
@@ -217,24 +249,29 @@ export async function gerarPlanoDoDia(
       aoProgredir?.(`Investigação individual ${i + 1}/${especiais.length}: ${e.order_id}`);
       const inv = await investigarExcecao(ctx, llm, e.id);
       tokens += inv.tokens;
-      const t = tratativas.find((x) => x.id === e.id);
-      if (t && inv.fonte === "agente") {
-        t.acoes = inv.avaliacoes;
-        t.mensagens = inv.mensagens;
-      }
-      if (t) t.investigacao = inv;
+      aplicarInvestigacao(tratativas, inv);
     }
   }
 
+  return montarPlano(ctx, resultados, tratativas, { modelo, tokens });
+}
+
+/** Monta o plano com o resumo de status e custos (usado no build e no navegador). */
+export function montarPlano(
+  ctx: Contexto,
+  grupos: ResultadoGrupo[],
+  tratativas: TratativaPedido[],
+  meta: { modelo?: string; tokens: number },
+): PlanoDoDia {
   const todas = tratativas.flatMap((t) => t.acoes);
   const mensagens = tratativas.flatMap((t) => t.mensagens);
   const somaCusto = (s: AvaliacaoAcao["status"]) => r2(todas.filter((a) => a.status === s).reduce((x, a) => x + a.custoEstimado, 0));
   return {
     geradoEm: new Date().toISOString(),
     dataReferencia: ctx.analise.parametros.dataReferencia,
-    modelo,
-    tokens,
-    grupos: resultados,
+    modelo: meta.modelo,
+    tokens: meta.tokens,
+    grupos,
     tratativas,
     resumo: {
       automaticas: todas.filter((a) => a.status === "automatica").length,
@@ -309,7 +346,8 @@ export function causasParaCorrecao(ctx: Contexto): CausaParaCorrecao[] {
       dados: {
         onde: "Cálculo da data prometida no checkout",
         regra_correta: "1 dia útil de separação + SLA da transportadora em dias úteis",
-        regra_observada_em_100_por_cento_dos_pedidos: a.regraObservada,
+        regra_observada: a.regraObservada,
+        datas_que_batem_com_dias_corridos: `${a.batemComCorridos} de ${a.pedidos}`,
         dias_uteis_prometidos_a_menos_em_media: r2(a.diasPrometidosAMenosMedio),
         maximo_dias_a_menos: a.diasPrometidosAMenosMax,
         atrasos_que_estao_dentro_do_prazo_contratado: `${a.atrasosDentroDoContrato} de ${a.atrasosTotal}`,

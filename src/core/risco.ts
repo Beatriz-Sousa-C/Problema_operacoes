@@ -16,7 +16,7 @@
  */
 import { Calendario, paraDia, paraIso } from "./calendario";
 import { PARAMETROS, REGIAO_POR_UF, type Parametros } from "./parametros";
-import type { BaseDados, ExcecaoAnalisada, RelatorioQualidade } from "./tipos";
+import type { BaseDados, ExcecaoAnalisada, RelatorioQualidade, Transportadora } from "./tipos";
 import { removerDuplicatas } from "./dados";
 
 export function probabilidadeCancelamento(atrasoDiasUteis: number, p: Parametros = PARAMETROS): number {
@@ -65,12 +65,45 @@ export function atrasoNoDia(
   return cal.diasUteisEntre(paraDia(dataPrometida), paraDia(diaTratamento));
 }
 
+const mediana = (v: number[]) => {
+  if (!v.length) return 0;
+  const s = [...v].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+
+/**
+ * SLA e frete quando a transportadora × UF não está na tabela: a mediana da
+ * mesma transportadora nas outras UFs ou, sem ela, a mediana geral. Usar 0
+ * faria a transportadora parecer atrasada e o reenvio parecer mais barato.
+ */
+export function estimadorDeSla(tabela: readonly Transportadora[]) {
+  const geral = { sla: Math.round(mediana(tabela.map((t) => t.sla_contratado_dias_uteis))), frete: mediana(tabela.map((t) => t.custo_medio_frete)) };
+  const cache = new Map<string, { sla: number; frete: number }>();
+  return (transportadora: string) => {
+    let r = cache.get(transportadora);
+    if (!r) {
+      const dela = tabela.filter((t) => t.transportadora === transportadora);
+      r = dela.length
+        ? { sla: Math.round(mediana(dela.map((t) => t.sla_contratado_dias_uteis))), frete: mediana(dela.map((t) => t.custo_medio_frete)) }
+        : geral;
+      cache.set(transportadora, r);
+    }
+    return r;
+  };
+}
+
 export function analisar(base: BaseDados, p: Parametros = PARAMETROS): Analise {
   const cal = new Calendario(p.feriados);
   const { unicas, duplicatas } = removerDuplicatas(base.excecoes);
 
   const clientes = new Map(base.clientes.map((c) => [c.customer_id, c]));
   const slas = new Map(base.transportadoras.map((t) => [`${t.transportadora}|${t.uf_atendida}`, t]));
+  const estimarSla = estimadorDeSla(base.transportadoras);
+
+  // O cliente só pode ir embora uma vez: a recompra dele é dividida entre as exceções abertas.
+  const excecoesPorCliente = new Map<string, number>();
+  for (const e of unicas) excecoesPorCliente.set(e.customer_id, (excecoesPorCliente.get(e.customer_id) ?? 0) + 1);
 
   const horizonteDias = Math.max(1, Math.ceil(unicas.length / p.capacidadeDiaria));
   const ref = paraDia(p.dataReferencia);
@@ -90,8 +123,10 @@ export function analisar(base: BaseDados, p: Parametros = PARAMETROS): Analise {
     }
     const t = slas.get(`${e.transportadora}|${e.uf}`);
     if (!t) transportadorasSemSla++;
-    const sla = t?.sla_contratado_dias_uteis ?? 0;
-    const frete = t?.custo_medio_frete ?? 0;
+    const estimado = t ? null : estimarSla(e.transportadora);
+    const sla = t?.sla_contratado_dias_uteis ?? estimado!.sla;
+    const frete = t?.custo_medio_frete ?? estimado!.frete;
+    const excecoesDoCliente = excecoesPorCliente.get(e.customer_id) ?? 1;
 
     const prazoContratado = cal.prazoContratado(e.data_pedido, sla);
     const entregue = e.data_entrega !== null;
@@ -107,7 +142,7 @@ export function analisar(base: BaseDados, p: Parametros = PARAMETROS): Analise {
     const probRecompra = clienteVip ? p.recompra.probabilidadeVip : p.recompra.probabilidadeDemais;
     const frequenciaAnual = comprasPorAno(cliente.n_pedidos, cliente.data_primeiro_pedido, p.dataReferencia, p);
     const componenteRecompra =
-      probRecompra * (1 - p.recompra.fatorMalResolvida) * frequenciaAnual * ticketMedio * margem;
+      (probRecompra * (1 - p.recompra.fatorMalResolvida) * frequenciaAnual * ticketMedio * margem) / excecoesDoCliente;
     const componenteReembolso = e.tipo_excecao === "pagamento_pendente" ? e.valor * margem : e.valor;
     const valorEmJogo = componenteReembolso + componenteRecompra;
 
@@ -122,6 +157,8 @@ export function analisar(base: BaseDados, p: Parametros = PARAMETROS): Analise {
       cliente,
       slaContratado: sla,
       freteMedio: frete,
+      slaEstimado: !t,
+      excecoesDoCliente,
       regiao: REGIAO_POR_UF[e.uf] ?? "Desconhecida",
       prazoContratado,
       diasPrometidosAMenos: cal.diasUteisEntre(paraDia(e.data_prometida), paraDia(prazoContratado)),
@@ -145,11 +182,13 @@ export function analisar(base: BaseDados, p: Parametros = PARAMETROS): Analise {
   return {
     excecoes,
     qualidade: {
-      linhasRecebidas: base.excecoes.length,
+      linhasRecebidas: base.excecoes.length + (base.descartadas ?? []).filter((d) => d.arquivo === "pedidos_excecao.csv").length,
       duplicatasRemovidas: duplicatas.length,
       duplicatas,
       clientesAusentes,
       transportadorasSemSla,
+      linhasDescartadas: base.descartadas ?? [],
+      linhasCorrigidas: base.corrigidas ?? [],
     },
     horizonteDias,
     diasDeTratamento,

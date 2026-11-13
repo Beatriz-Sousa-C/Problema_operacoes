@@ -1,106 +1,55 @@
 "use client";
 import { useMemo, useState } from "react";
-import { type StatusAcao, type TipoExcecao } from "@/core";
-import { filaDoDia, gerarPlanoDoDia, type Contexto, type PlanoDoDia } from "@/agente";
-import { brl, brl2, num, pct, ROTULO_TIPO } from "./formato";
+import { estadoAcao, type EstadoAcao, type TipoExcecao } from "@/core";
+import { filaDoDia, type Contexto, type PlanoDoDia } from "@/agente";
+import { brl, brl2, num, pct, ROTULO_ESTADO, ROTULO_TIPO } from "./formato";
 import { ChipAcao } from "./ChipAcao";
 import { PainelPedido } from "./PainelPedido";
-import { ClienteProxy } from "./llmProxy";
+import type { AcaoRegistro, Registro } from "./registro";
+import { useTratativas } from "./tratativas";
 
 interface Props {
   ctx: Contexto;
   plano: PlanoDoDia | null;
-  fonte: "agente" | "regras";
-  aoTrocarPlano: (p: PlanoDoDia) => void;
+  registro: Registro;
+  despachar: (a: AcaoRegistro) => void;
+  /** IA ao vivo só existe para a lista original (o agente roda no servidor) */
+  iaAoVivo: boolean;
+  irPara: (aba: string) => void;
 }
 
-export type Aprovacoes = Record<string, "aprovada" | "recusada">;
+const FILTROS_ESTADO: EstadoAcao[] = ["aguarda_aprovacao", "aguarda_foto", "aprovada", "recusada", "liberada", "bloqueada"];
 
-export function Fila({ ctx, plano, fonte, aoTrocarPlano }: Props) {
+/** Visão de consulta: a fila do dia inteira em tabela, com filtros. O trabalho guiado fica na aba "Hoje". */
+export function Fila({ ctx, plano, registro, despachar, iaAoVivo, irPara }: Props) {
   const [tipo, setTipo] = useState<TipoExcecao | "">("");
-  const [status, setStatus] = useState<StatusAcao | "">("");
+  const [estado, setEstado] = useState<EstadoAcao | "">("");
   const [selecionado, setSelecionado] = useState<string | null>(null);
-  const [aprovacoes, setAprovacoes] = useState<Aprovacoes>({});
-  const [progresso, setProgresso] = useState<string | null>(null);
 
   const hoje = useMemo(() => filaDoDia(ctx), [ctx]);
-  const tratativas = useMemo(() => new Map(plano?.tratativas.map((t) => [t.id, t]) ?? []), [plano]);
+  const tratativas = useTratativas(ctx, plano, registro);
+
   const linhas = hoje.filter(
     (i) =>
       (!tipo || i.excecao.tipo_excecao === tipo) &&
-      (!status || tratativas.get(i.excecao.id)?.acoes.some((a) => a.status === status)),
+      (!estado || tratativas.get(i.excecao.id)?.acoes.some((a) => estadoAcao(a, registro[i.excecao.id]) === estado)),
   );
   const tiposHoje = [...new Set(hoje.map((i) => i.excecao.tipo_excecao))].sort();
   const valorEmJogo = hoje.reduce((s, i) => s + i.excecao.valorEmJogo, 0);
   const custoEsperarHoje = hoje.reduce((s, i) => s + i.excecao.custoDeEsperar, 0);
-
-  async function gerarAoVivo() {
-    setProgresso("Iniciando o agente…");
-    try {
-      const novo = await gerarPlanoDoDia(ctx, new ClienteProxy(), { casosEspeciais: 2, aoProgredir: setProgresso });
-      aoTrocarPlano(novo);
-      setProgresso(novo.grupos.some((g) => g.fonte === "agente") ? null : "O agente não respondeu; o plano continua pelas regras da política.");
-    } catch (e) {
-      setProgresso(e instanceof Error ? e.message : "Falha ao gerar o plano");
-    }
-  }
-
   const item = selecionado ? ctx.porId.get(selecionado) : undefined;
 
   return (
     <div className="fila">
       <header className="fila__topo">
         <div>
-          <h1 className="titulo-largo titulo-largo--menor">Fila de hoje: {num(hoje.length)} exceções</h1>
+          <h1 className="titulo-largo titulo-largo--menor">Fila completa de hoje: {num(hoje.length)} exceções</h1>
           <p className="secao__intro">
             Ordenadas pelo quanto a perda cresce se cada pedido esperar até o fim da fila. Juntas, carregam {brl(valorEmJogo)} em jogo; tratá-las hoje
-            evita {brl(custoEsperarHoje)} de perda adicional.
+            evita {brl(custoEsperarHoje)} de perda adicional. Para trabalhar a fila passo a passo, use a aba{" "}
+            <button className="botao-texto" onClick={() => irPara("hoje")}>Hoje</button>.
           </p>
         </div>
-        {plano && (
-          <div className="plano">
-            <p className="plano__fonte">
-              {fonte === "agente" || plano.grupos.some((g) => g.fonte === "agente") ? (
-                <>
-                  Plano decidido pelo agente de IA{plano.modelo ? ` (${plano.modelo})` : ""}: {plano.grupos.length} grupos e{" "}
-                  {plano.tratativas.filter((t) => t.investigacao?.fonte === "agente").length} investigações individuais.
-                </>
-              ) : (
-                <>Plano pelas regras da política. O agente não estava disponível quando este plano foi gerado.</>
-              )}
-            </p>
-            <dl className="plano__numeros">
-              <div>
-                <dt>Ações automáticas</dt>
-                <dd>{num(plano.resumo.automaticas)}</dd>
-              </div>
-              <div>
-                <dt>Esperam a foto do cliente</dt>
-                <dd>{num(plano.resumo.aguardandoFoto)}</dd>
-              </div>
-              <div>
-                <dt>Precisam de aprovação</dt>
-                <dd>{num(plano.resumo.aguardandoAprovacao)}</dd>
-              </div>
-              <div>
-                <dt>Mensagens que saem agora</dt>
-                <dd>{num(plano.resumo.mensagensAgora)}</dd>
-              </div>
-              <div>
-                <dt>Custo já liberado</dt>
-                <dd>{brl(plano.resumo.custoAutomatico)}</dd>
-              </div>
-              <div>
-                <dt>Custo em aprovação</dt>
-                <dd>{brl(plano.resumo.custoEmAprovacao)}</dd>
-              </div>
-            </dl>
-            <button className="botao" onClick={gerarAoVivo} disabled={progresso !== null && !progresso.includes("não")}>
-              Gerar o plano de novo com o agente
-            </button>
-            {progresso && <p className="plano__progresso" role="status">{progresso}</p>}
-          </div>
-        )}
       </header>
 
       {plano && (
@@ -140,12 +89,13 @@ export function Fila({ ctx, plano, fonte, aoTrocarPlano }: Props) {
         </label>
         <label>
           Ação
-          <select value={status} onChange={(e) => setStatus(e.target.value as StatusAcao | "")}>
+          <select value={estado} onChange={(e) => setEstado(e.target.value as EstadoAcao | "")}>
             <option value="">Todas</option>
-            <option value="aguardando_aprovacao">Precisa de aprovação</option>
-            <option value="automatica">Automática</option>
-            <option value="aguarda_foto">Depois da foto</option>
-            <option value="bloqueada">Bloqueada</option>
+            {FILTROS_ESTADO.map((s) => (
+              <option key={s} value={s}>
+                {ROTULO_ESTADO[s]}
+              </option>
+            ))}
           </select>
         </label>
         <span className="filtros__total">{num(linhas.length)} na lista</span>
@@ -190,7 +140,7 @@ export function Fila({ ctx, plano, fonte, aoTrocarPlano }: Props) {
                   <td className="num">{brl2(e.custoDeEsperar)}</td>
                   <td>
                     <div className="chips">
-                      {t?.acoes.map((a) => <ChipAcao key={a.acao} avaliacao={a} decisao={aprovacoes[`${e.id}|${a.acao}`]} />)}
+                      {t?.acoes.map((a) => <ChipAcao key={a.acao} avaliacao={a} registro={registro[e.id]} />)}
                     </div>
                   </td>
                 </tr>
@@ -205,8 +155,9 @@ export function Fila({ ctx, plano, fonte, aoTrocarPlano }: Props) {
           ctx={ctx}
           item={item}
           tratativa={tratativas.get(item.excecao.id)}
-          aprovacoes={aprovacoes}
-          aoDecidir={(chave, d) => setAprovacoes((a) => ({ ...a, [chave]: d }))}
+          registro={registro[item.excecao.id]}
+          despachar={despachar}
+          iaAoVivo={iaAoVivo}
           aoFechar={() => setSelecionado(null)}
         />
       )}

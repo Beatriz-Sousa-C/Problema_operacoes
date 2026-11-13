@@ -58,6 +58,24 @@ describe("analisar", () => {
     expect(e.custoDeEsperar).toBe(0);
   });
 
+  it("a recompra do cliente é dividida entre as exceções abertas dele", () => {
+    const [sozinha] = analisar(base([excecao({})])).excecoes;
+    const duas = analisar(base([excecao({}), excecao({ order_id: "GB2" })])).excecoes;
+    expect(duas.map((e) => e.excecoesDoCliente)).toEqual([2, 2]);
+    for (const e of duas) expect(e.componenteRecompra).toBeCloseTo(sozinha.componenteRecompra / 2);
+  });
+
+  it("transportadora fora da tabela usa a mediana dela, não SLA zero", () => {
+    const b = base([excecao({ uf: "RJ" })]);
+    b.transportadoras.push({ transportadora: "T", uf_atendida: "MG", sla_contratado_dias_uteis: 5, custo_medio_frete: 20 });
+    const a = analisar(b);
+    const [e] = a.excecoes;
+    expect(a.qualidade.transportadorasSemSla).toBe(1);
+    expect(e.slaEstimado).toBe(true);
+    expect(e.slaContratado).toBe(4); // mediana de 3 (SP) e 5 (MG)
+    expect(e.freteMedio).toBe(16);
+  });
+
   it("cliente acima de R$ 1.500 usa recompra de 70%", () => {
     const [e] = analisar(base([excecao({})], 2000, 10)).excecoes;
     expect(e.clienteVip).toBe(true);

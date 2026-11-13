@@ -27,6 +27,9 @@ export function Resumo({ ctx, irPara }: { ctx: Contexto; irPara: (aba: string) =
           ainda dá para salvar.
         </p>
         <GraficoPerda simulacao={sim} dias={analise.diasDeTratamento} />
+        <button className="botao botao--destaque" onClick={() => irPara("hoje")}>
+          Abrir o trabalho de hoje
+        </button>
       </section>
 
       <section className="fatos" aria-label="Números da fila">
@@ -107,6 +110,36 @@ export function Resumo({ ctx, irPara }: { ctx: Contexto; irPara: (aba: string) =
           vezes para o mesmo pedido, com status diferentes; mantivemos o registro mais avançado. Tratar as duas seria gastar{" "}
           {num(analise.qualidade.duplicatasRemovidas)} tratativas à toa. Dados de referência: {dataBr(p.dataReferencia)}/2026.
         </p>
+        {analise.qualidade.transportadorasSemSla > 0 && (
+          <p>
+            {num(analise.qualidade.transportadorasSemSla)} exceções usam uma transportadora que não está na tabela para aquela UF: o SLA e o frete
+            foram estimados pela mediana da transportadora, e esses pedidos ficam fora da auditoria de prazo.
+          </p>
+        )}
+        {analise.qualidade.linhasDescartadas.length > 0 && (
+          <details>
+            <summary>{num(analise.qualidade.linhasDescartadas.length)} linhas ignoradas por erro nos dados</summary>
+            <ul>
+              {analise.qualidade.linhasDescartadas.slice(0, 50).map((d) => (
+                <li key={`${d.arquivo}|${d.linha}`}>
+                  {d.arquivo}, linha {d.linha}: {d.motivo}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+        {analise.qualidade.linhasCorrigidas.length > 0 && (
+          <details>
+            <summary>{num(analise.qualidade.linhasCorrigidas.length)} linhas aceitas com um campo corrigido</summary>
+            <ul>
+              {analise.qualidade.linhasCorrigidas.slice(0, 50).map((d) => (
+                <li key={`${d.arquivo}|${d.linha}`}>
+                  {d.arquivo}, linha {d.linha}: {d.motivo}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
       </section>
     </div>
   );

@@ -56,6 +56,10 @@ export interface BaseDados {
   excecoes: ExcecaoBruta[];
   clientes: Cliente[];
   transportadoras: Transportadora[];
+  /** Linhas ignoradas na leitura (preenchido por carregarBase) */
+  descartadas?: LinhaDescartada[];
+  /** Linhas aceitas com um campo corrigido (preenchido por carregarBase) */
+  corrigidas?: LinhaDescartada[];
 }
 
 /** Exceção enriquecida com contexto e com o modelo de risco calculado. */
@@ -64,6 +68,10 @@ export interface ExcecaoAnalisada extends ExcecaoBruta {
   cliente: Cliente;
   slaContratado: number;
   freteMedio: number;
+  /** A combinação transportadora × UF não está na tabela: SLA e frete estimados pela mediana */
+  slaEstimado: boolean;
+  /** Exceções abertas do mesmo cliente: a recompra é dividida entre elas */
+  excecoesDoCliente: number;
   regiao: string;
   /** Prazo correto segundo a regra (1 dia útil de separação + SLA em dias úteis) */
   prazoContratado: string;
@@ -98,5 +106,17 @@ export interface RelatorioQualidade {
   duplicatasRemovidas: number;
   duplicatas: { order_id: string; tipo_excecao: string; statusMantido: string; statusDescartado: string }[];
   clientesAusentes: number;
+  /** Exceções cuja transportadora × UF não está na tabela (SLA e frete estimados) */
   transportadorasSemSla: number;
+  /** Linhas ignoradas na leitura dos arquivos, com o motivo */
+  linhasDescartadas: LinhaDescartada[];
+  /** Linhas aceitas com um campo corrigido */
+  linhasCorrigidas: LinhaDescartada[];
+}
+
+export interface LinhaDescartada {
+  arquivo: string;
+  /** Linha no arquivo (1 = cabeçalho) */
+  linha: number;
+  motivo: string;
 }

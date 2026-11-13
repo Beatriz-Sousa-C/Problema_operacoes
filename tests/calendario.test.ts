@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { Calendario, paraDia, PARAMETROS } from "@/core";
+import { Calendario, feriadosNacionais, paraDia, PARAMETROS, pascoa } from "@/core";
+
+describe("feriados nacionais", () => {
+  it("calcula a Páscoa e a Sexta-feira Santa", () => {
+    expect(pascoa(2026)).toBe("2026-04-05");
+    expect(pascoa(2027)).toBe("2027-03-28");
+    expect(feriadosNacionais(2026)).toContain("2026-04-03");
+  });
+  it("inclui as datas fixas, inclusive 20/11", () => {
+    for (const d of ["2026-09-07", "2026-10-12", "2026-11-02", "2026-11-15", "2026-11-20", "2026-12-25"]) {
+      expect(PARAMETROS.feriados).toContain(d);
+    }
+  });
+});
 
 const cal = new Calendario(PARAMETROS.feriados);
 

@@ -33,6 +33,18 @@ describe("auditarPrazos", () => {
   it("detecta que o sistema promete em dias corridos", () => {
     const a = auditarPrazos(analise.excecoes);
     expect(a.regraObservada).toMatch(/CORRIDOS/);
+    expect(a.batemComCorridos).toBe(a.pedidos);
     expect(a.atrasosDentroDoContrato).toBeGreaterThan(100);
+  });
+
+  it("um erro de digitação não apaga o achado (basta 95% das datas)", () => {
+    const comErro = analise.excecoes.map((e, i) => (i === 0 ? { ...e, data_prometida: "2026-01-01" } : e));
+    const a = auditarPrazos(comErro);
+    expect(a.batemComCorridos).toBe(a.pedidos - 1);
+    expect(a.regraObservada).toMatch(/CORRIDOS/);
+  });
+
+  it("lista vazia não afirma regra nenhuma", () => {
+    expect(auditarPrazos([]).regraObservada).toBeNull();
   });
 });

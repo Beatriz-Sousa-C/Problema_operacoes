@@ -186,31 +186,41 @@ export interface AuditoriaPrazo {
   /** Exceções de atraso que estão dentro do prazo contratado: o "atraso" foi criado pela promessa */
   atrasosDentroDoContrato: number;
   atrasosTotal: number;
-  /** Hipótese que explica 100% das datas, se houver */
+  /** Datas prometidas que batem com a hipótese de dias corridos */
+  batemComCorridos: number;
+  /** Hipótese que explica pelo menos 95% das datas, se houver */
   regraObservada: string | null;
 }
 
+/** Fração mínima das datas que precisa bater com a hipótese: um erro de digitação não apaga o achado. */
+const COBERTURA_MINIMA_REGRA = 0.95;
+
 export function auditarPrazos(excecoes: readonly ExcecaoAnalisada[]): AuditoriaPrazo {
-  const divergentes = excecoes.filter((e) => e.data_prometida !== e.prazoContratado);
-  const aMenos = excecoes.map((e) => e.diasPrometidosAMenos);
-  const atrasos = excecoes.filter((e) => e.tipo_excecao === "atraso_entrega");
+  // Pedidos com SLA estimado não servem de prova: o prazo deles não veio do contrato.
+  const auditaveis = excecoes.filter((e) => !e.slaEstimado);
+  const divergentes = auditaveis.filter((e) => e.data_prometida !== e.prazoContratado);
+  const aMenos = auditaveis.map((e) => e.diasPrometidosAMenos);
+  const atrasos = auditaveis.filter((e) => e.tipo_excecao === "atraso_entrega");
 
   // Testa a hipótese "dias corridos": prometida = pedido + 1 + SLA (corridos).
-  const corridos = excecoes.every((e) => {
+  const batemComCorridos = auditaveis.filter((e) => {
     const d = new Date(`${e.data_pedido}T00:00:00Z`);
     d.setUTCDate(d.getUTCDate() + 1 + e.slaContratado);
     return d.toISOString().slice(0, 10) === e.data_prometida;
-  });
+  }).length;
+  const cobertura = auditaveis.length ? batemComCorridos / auditaveis.length : 0;
 
   return {
-    pedidos: excecoes.length,
+    pedidos: auditaveis.length,
     divergentes: divergentes.length,
     diasPrometidosAMenosMedio: aMenos.reduce((s, v) => s + v, 0) / Math.max(1, aMenos.length),
-    diasPrometidosAMenosMax: Math.max(0, ...aMenos),
+    diasPrometidosAMenosMax: aMenos.reduce((m, v) => Math.max(m, v), 0),
     atrasosDentroDoContrato: atrasos.filter((e) => e.atrasoVsContrato === 0).length,
     atrasosTotal: atrasos.length,
-    regraObservada: corridos
-      ? "data do pedido + 1 + SLA em dias CORRIDOS (a regra manda contar dias úteis)"
-      : null,
+    batemComCorridos,
+    regraObservada:
+      auditaveis.length > 0 && cobertura >= COBERTURA_MINIMA_REGRA
+        ? `data do pedido + 1 + SLA em dias CORRIDOS, em ${batemComCorridos.toLocaleString("pt-BR")} de ${auditaveis.length.toLocaleString("pt-BR")} datas (a regra manda contar dias úteis)`
+        : null,
   };
 }

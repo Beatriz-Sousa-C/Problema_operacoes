@@ -3,88 +3,219 @@ import type {
   BaseDados,
   Cliente,
   ExcecaoBruta,
+  LinhaDescartada,
   RelatorioQualidade,
   TipoExcecao,
   Transportadora,
 } from "./tipos";
 import { TIPOS_EXCECAO } from "./tipos";
 
-/** Faz o parse de um CSV com cabeçalho. Funciona no servidor e no navegador. */
-function lerCsv(texto: string): Record<string, string>[] {
-  const r = Papa.parse<Record<string, string>>(texto.trim(), {
+/**
+ * Leitura tolerante dos CSVs. O objetivo é aceitar o que uma planilha real
+ * produz (BOM, separador ";", vírgula decimal, data dd/mm/aaaa, espaços) e
+ * descartar só a linha com problema, com o motivo, em vez de recusar o
+ * arquivo inteiro. O arquivo só é recusado quando falta uma coluna
+ * obrigatória, quando nenhuma linha é válida ou quando a maioria é inválida.
+ */
+
+export interface Leitura<T> {
+  linhas: T[];
+  descartadas: LinhaDescartada[];
+  /** Linhas aceitas com um campo corrigido (ex.: data de entrega ilegível vira vazia) */
+  corrigidas: LinhaDescartada[];
+}
+
+/** Acima desta fração de linhas inválidas, o arquivo provavelmente não é o que se espera. */
+const MAXIMO_INVALIDAS = 0.5;
+
+interface LinhaCsv {
+  campos: Record<string, string>;
+  /** Número da linha no arquivo (1 = cabeçalho) */
+  linha: number;
+}
+
+function lerCsv(texto: string, arquivo: string, obrigatorias: string[]): { linhas: LinhaCsv[]; descartadas: LinhaDescartada[] } {
+  const r = Papa.parse<Record<string, string>>(texto.replace(/^﻿/, "").trim(), {
     header: true,
-    skipEmptyLines: true,
+    skipEmptyLines: "greedy",
+    transformHeader: (h) => h.replace(/^﻿/, "").trim(),
   });
-  if (r.errors.length) {
-    const e = r.errors[0];
-    throw new Error(`CSV inválido (linha ${e.row}): ${e.message}`);
-  }
-  return r.data;
-}
-
-function exigirColunas(linhas: Record<string, string>[], colunas: string[], arquivo: string) {
-  const presentes = new Set(Object.keys(linhas[0] ?? {}));
-  const faltando = colunas.filter((c) => !presentes.has(c));
+  const presentes = new Set(r.meta.fields ?? []);
+  const faltando = obrigatorias.filter((c) => !presentes.has(c));
   if (faltando.length) throw new Error(`${arquivo}: colunas ausentes: ${faltando.join(", ")}`);
+
+  const comErro = new Map<number, string>();
+  for (const e of r.errors) {
+    if (e.row !== undefined && e.row !== null && !comErro.has(e.row)) comErro.set(e.row, `linha mal formada (${e.message})`);
+  }
+  const linhas: LinhaCsv[] = [];
+  const descartadas: LinhaDescartada[] = [];
+  r.data.forEach((campos, i) => {
+    const motivo = comErro.get(i);
+    if (motivo) descartadas.push({ arquivo, linha: i + 2, motivo });
+    else linhas.push({ campos, linha: i + 2 });
+  });
+  return { linhas, descartadas };
 }
 
-const vazioParaNulo = (v: string | undefined) => (v && v.trim() !== "" ? v.trim() : null);
+// ---------- Conversores tolerantes ----------
 
-export function parseExcecoes(csv: string): ExcecaoBruta[] {
-  const linhas = lerCsv(csv);
-  exigirColunas(
-    linhas,
-    ["order_id", "customer_id", "valor", "tipo_excecao", "transportadora", "uf", "data_pedido", "data_prometida"],
-    "pedidos_excecao.csv",
-  );
-  const tiposValidos = new Set<string>(TIPOS_EXCECAO);
-  return linhas.map((l, i) => {
-    if (!tiposValidos.has(l.tipo_excecao)) {
-      throw new Error(`pedidos_excecao.csv linha ${i + 2}: tipo_excecao desconhecido "${l.tipo_excecao}"`);
+const texto = (v: string | undefined) => (v ?? "").trim();
+
+/** Aceita 77.31, 77,31, 1.234,56, 1,234.56 e "R$ 77,31". Devolve NaN se não for número. */
+export function numero(v: string | undefined): number {
+  let s = texto(v).replace(/^R\$\s*/i, "").replace(/\s/g, "");
+  if (!s) return Number.NaN;
+  const ultimaVirgula = s.lastIndexOf(",");
+  const ultimoPonto = s.lastIndexOf(".");
+  if (ultimaVirgula > ultimoPonto) s = s.replace(/\./g, "").replace(",", "."); // vírgula é o decimal
+  else if (ultimaVirgula >= 0) s = s.replace(/,/g, ""); // vírgula é separador de milhar
+  else if ((s.match(/\./g) ?? []).length > 1) s = s.replace(/\./g, ""); // 1.234.567
+  return /^[-+]?\d*\.?\d+$/.test(s) ? Number(s) : Number.NaN;
+}
+
+/** Aceita aaaa-mm-dd (com ou sem hora) e dd/mm/aaaa. Devolve ISO ou null se a data não existir. */
+export function data(v: string | undefined): string | null {
+  const s = texto(v);
+  let a: number, m: number, d: number;
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/);
+  const br = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (iso) [a, m, d] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
+  else if (br) [a, m, d] = [Number(br[3]), Number(br[2]), Number(br[1])];
+  else return null;
+  const dt = new Date(Date.UTC(a, m - 1, d));
+  if (dt.getUTCFullYear() !== a || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null;
+  return dt.toISOString().slice(0, 10);
+}
+
+export function booleano(v: string | undefined): boolean {
+  return ["true", "1", "sim", "s", "yes", "y", "verdadeiro"].includes(texto(v).toLowerCase());
+}
+
+const tiposValidos = new Set<string>(TIPOS_EXCECAO);
+const normalizarTipo = (v: string | undefined) => texto(v).toLowerCase().replace(/[\s-]+/g, "_");
+
+/**
+ * Valida a leitura: recusa o arquivo se nenhuma linha for válida ou se a
+ * maioria for inválida (mostrando as primeiras linhas e os motivos).
+ */
+function conferir<T>(arquivo: string, l: Leitura<T>): Leitura<T> {
+  const total = l.linhas.length + l.descartadas.length;
+  const exemplos = () =>
+    l.descartadas
+      .slice(0, 5)
+      .map((d) => `linha ${d.linha}: ${d.motivo}`)
+      .join("; ");
+  if (!l.linhas.length) {
+    throw new Error(total ? `${arquivo}: nenhuma linha válida (${exemplos()})` : `${arquivo}: arquivo sem linhas válidas`);
+  }
+  if (l.descartadas.length / total > MAXIMO_INVALIDAS) {
+    throw new Error(`${arquivo}: ${l.descartadas.length} de ${total} linhas inválidas. Exemplos: ${exemplos()}`);
+  }
+  return l;
+}
+
+/** Converte cada linha ou devolve o motivo do descarte. */
+function converter<T>(
+  arquivo: string,
+  csv: string,
+  obrigatorias: string[],
+  conv: (c: Record<string, string>, corrigir: (motivo: string) => void) => T | string,
+): Leitura<T> {
+  const { linhas, descartadas } = lerCsv(csv, arquivo, obrigatorias);
+  const saida: Leitura<T> = { linhas: [], descartadas, corrigidas: [] };
+  for (const { campos, linha } of linhas) {
+    const r = conv(campos, (motivo) => saida.corrigidas.push({ arquivo, linha, motivo }));
+    if (typeof r === "string") saida.descartadas.push({ arquivo, linha, motivo: r });
+    else saida.linhas.push(r);
+  }
+  saida.descartadas.sort((a, b) => a.linha - b.linha);
+  return conferir(arquivo, saida);
+}
+
+export function parseExcecoes(csv: string): Leitura<ExcecaoBruta> {
+  const arquivo = "pedidos_excecao.csv";
+  const obrigatorias = ["order_id", "customer_id", "valor", "tipo_excecao", "transportadora", "uf", "data_pedido", "data_prometida"];
+  return converter(arquivo, csv, obrigatorias, (l, corrigir) => {
+    const order_id = texto(l.order_id);
+    const customer_id = texto(l.customer_id);
+    if (!order_id) return "order_id vazio";
+    if (!customer_id) return "customer_id vazio";
+    const tipo = normalizarTipo(l.tipo_excecao);
+    if (!tiposValidos.has(tipo)) return `tipo_excecao desconhecido "${texto(l.tipo_excecao)}"`;
+    const valor = numero(l.valor);
+    if (!(valor >= 0)) return `valor inválido "${texto(l.valor)}"`;
+    const dataPedido = data(l.data_pedido);
+    if (!dataPedido) return `data_pedido inválida "${texto(l.data_pedido)}"`;
+    const dataPrometida = data(l.data_prometida);
+    if (!dataPrometida) return `data_prometida inválida "${texto(l.data_prometida)}"`;
+
+    let dataEntrega: string | null = null;
+    if (texto(l.data_entrega)) {
+      dataEntrega = data(l.data_entrega);
+      if (!dataEntrega) corrigir(`data_entrega ilegível "${texto(l.data_entrega)}": tratada como não entregue`);
     }
+    const qtd = numero(l.qtd_itens);
     return {
-      order_id: l.order_id,
-      customer_id: l.customer_id,
-      marca: l.marca,
-      data_pedido: l.data_pedido,
-      valor: Number(l.valor),
-      sku: l.sku,
-      descricao_produto: l.descricao_produto,
-      qtd_itens: Number(l.qtd_itens),
-      brinde_no_pedido: l.brinde_no_pedido === "True" || l.brinde_no_pedido === "true",
-      tipo_excecao: l.tipo_excecao as TipoExcecao,
-      status: l.status,
-      transportadora: l.transportadora,
-      uf: l.uf,
-      cidade: l.cidade,
-      data_prometida: l.data_prometida,
-      data_entrega: vazioParaNulo(l.data_entrega),
-      maquina: vazioParaNulo(l.maquina),
-      turno: l.turno,
-      cd: l.cd,
-      lote_produto: l.lote_produto,
-      data_abertura_excecao: l.data_abertura_excecao,
+      order_id,
+      customer_id,
+      marca: texto(l.marca),
+      data_pedido: dataPedido,
+      valor,
+      sku: texto(l.sku),
+      descricao_produto: texto(l.descricao_produto),
+      qtd_itens: qtd >= 1 ? Math.round(qtd) : 1,
+      brinde_no_pedido: booleano(l.brinde_no_pedido),
+      tipo_excecao: tipo as TipoExcecao,
+      status: texto(l.status) || "aberta",
+      transportadora: texto(l.transportadora),
+      uf: texto(l.uf).toUpperCase(),
+      cidade: texto(l.cidade),
+      data_prometida: dataPrometida,
+      data_entrega: dataEntrega,
+      maquina: texto(l.maquina) || null,
+      turno: texto(l.turno),
+      cd: texto(l.cd),
+      lote_produto: texto(l.lote_produto),
+      data_abertura_excecao: data(l.data_abertura_excecao) ?? dataPedido,
     };
   });
 }
 
-export function parseClientes(csv: string): Cliente[] {
-  return lerCsv(csv).map((l) => ({
-    customer_id: l.customer_id,
-    n_pedidos: Number(l.n_pedidos),
-    receita_acumulada: Number(l.receita_acumulada),
-    data_primeiro_pedido: l.data_primeiro_pedido,
-    n_contatos_atendimento: Number(l.n_contatos_atendimento),
-  }));
+export function parseClientes(csv: string): Leitura<Cliente> {
+  const obrigatorias = ["customer_id", "n_pedidos", "receita_acumulada", "data_primeiro_pedido"];
+  return converter("clientes.csv", csv, obrigatorias, (l) => {
+    const customer_id = texto(l.customer_id);
+    if (!customer_id) return "customer_id vazio";
+    const receita = numero(l.receita_acumulada);
+    if (!(receita >= 0)) return `receita_acumulada inválida "${texto(l.receita_acumulada)}"`;
+    const primeiro = data(l.data_primeiro_pedido);
+    if (!primeiro) return `data_primeiro_pedido inválida "${texto(l.data_primeiro_pedido)}"`;
+    const n = numero(l.n_pedidos);
+    const contatos = numero(l.n_contatos_atendimento);
+    return {
+      customer_id,
+      n_pedidos: n >= 1 ? n : 1,
+      receita_acumulada: receita,
+      data_primeiro_pedido: primeiro,
+      n_contatos_atendimento: contatos >= 0 ? contatos : 0,
+    };
+  });
 }
 
-export function parseTransportadoras(csv: string): Transportadora[] {
-  return lerCsv(csv).map((l) => ({
-    transportadora: l.transportadora,
-    uf_atendida: l.uf_atendida,
-    sla_contratado_dias_uteis: Number(l.sla_contratado_dias_uteis),
-    custo_medio_frete: Number(l.custo_medio_frete),
-  }));
+export function parseTransportadoras(csv: string): Leitura<Transportadora> {
+  const obrigatorias = ["transportadora", "uf_atendida", "sla_contratado_dias_uteis", "custo_medio_frete"];
+  return converter("transportadoras.csv", csv, obrigatorias, (l) => {
+    const transportadora = texto(l.transportadora);
+    const uf = texto(l.uf_atendida).toUpperCase();
+    if (!transportadora) return "transportadora vazia";
+    if (!uf) return "uf_atendida vazia";
+    const sla = numero(l.sla_contratado_dias_uteis);
+    if (!(sla >= 0)) return `sla_contratado_dias_uteis inválido "${texto(l.sla_contratado_dias_uteis)}"`;
+    const frete = numero(l.custo_medio_frete);
+    if (!(frete >= 0)) return `custo_medio_frete inválido "${texto(l.custo_medio_frete)}"`;
+    return { transportadora, uf_atendida: uf, sla_contratado_dias_uteis: Math.round(sla), custo_medio_frete: frete };
+  });
 }
 
 /**
@@ -126,9 +257,14 @@ export function removerDuplicatas(excecoes: ExcecaoBruta[]): {
 }
 
 export function carregarBase(csvs: { excecoes: string; clientes: string; transportadoras: string }): BaseDados {
+  const excecoes = parseExcecoes(csvs.excecoes);
+  const clientes = parseClientes(csvs.clientes);
+  const transportadoras = parseTransportadoras(csvs.transportadoras);
   return {
-    excecoes: parseExcecoes(csvs.excecoes),
-    clientes: parseClientes(csvs.clientes),
-    transportadoras: parseTransportadoras(csvs.transportadoras),
+    excecoes: excecoes.linhas,
+    clientes: clientes.linhas,
+    transportadoras: transportadoras.linhas,
+    descartadas: [...excecoes.descartadas, ...clientes.descartadas, ...transportadoras.descartadas],
+    corrigidas: [...excecoes.corrigidas, ...clientes.corrigidas, ...transportadoras.corrigidas],
   };
 }

@@ -1,3 +1,5 @@
+import { feriadosNacionais } from "./calendario";
+
 /**
  * Parâmetros de negócio (fonte: parametros.md do desafio).
  * Centralizados num único objeto tipado para que nenhuma regra de negócio
@@ -36,7 +38,8 @@ export interface Parametros {
 
 export const PARAMETROS: Parametros = {
   dataReferencia: "2026-09-30",
-  feriados: ["2026-09-07", "2026-10-12"],
+  // Feriados nacionais de 2025 a 2027: listas de outros períodos também contam dias úteis certo.
+  feriados: [2025, 2026, 2027].flatMap(feriadosNacionais),
   capacidadeDiaria: 150,
   minutosPorTratativa: 12,
   cmv: 0.24,

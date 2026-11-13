@@ -1,17 +1,19 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanoDoDia } from "@/agente";
 import { Causas } from "./Causas";
 import { Fila } from "./Fila";
+import { Hoje } from "./Hoje";
 import { Metodo } from "./Metodo";
 import { Resumo } from "./Resumo";
 import { Simulador } from "./Simulador";
-import { carregarPadrao, lerArquivosEnviados, useContexto, usePlano, type Dados } from "./estado";
+import { carregarPadrao, chaveRegistro, lerArquivosEnviados, useContexto, usePlano, useRegistro, type Dados } from "./estado";
 import { dataBr, num } from "./formato";
 
 const ABAS = [
   { id: "resumo", rotulo: "Resumo" },
-  { id: "fila", rotulo: "Fila de hoje" },
+  { id: "hoje", rotulo: "Hoje" },
+  { id: "fila", rotulo: "Fila completa" },
   { id: "causas", rotulo: "Causas" },
   { id: "simulador", rotulo: "Simulador" },
   { id: "metodo", rotulo: "Método" },
@@ -45,6 +47,10 @@ export function App() {
   const { ctx, base, erro: erroDados } = useContexto(dados);
   const { plano: planoArquivo, correcoes, fonte } = usePlano(ctx, dados?.origem);
   const plano = planoAoVivo ?? planoArquivo;
+  // Registro acima das abas: trocar de aba ou recarregar não apaga fotos, aprovações e investigações.
+  const chave = useMemo(() => (dados && ctx ? chaveRegistro(dados, ctx.analise.parametros.dataReferencia) : null), [dados, ctx]);
+  const { registro, despachar } = useRegistro(chave);
+  const original = dados?.origem === "padrao";
 
   async function enviar(ev: React.ChangeEvent<HTMLInputElement>) {
     if (!ev.target.files?.length || !dados) return;
@@ -102,7 +108,19 @@ export function App() {
         )}
         {!ctx && !mensagemErro && <p className="carregando">Calculando a fila…</p>}
         {ctx && aba === "resumo" && <Resumo ctx={ctx} irPara={irPara} />}
-        {ctx && aba === "fila" && <Fila ctx={ctx} plano={plano} fonte={planoAoVivo ? "agente" : fonte} aoTrocarPlano={setPlanoAoVivo} />}
+        {ctx && aba === "hoje" && (
+          <Hoje
+            ctx={ctx}
+            plano={plano}
+            fonte={planoAoVivo ? "agente" : fonte}
+            aoTrocarPlano={setPlanoAoVivo}
+            registro={registro}
+            despachar={despachar}
+            iaAoVivo={original}
+            irPara={irPara}
+          />
+        )}
+        {ctx && aba === "fila" && <Fila ctx={ctx} plano={plano} registro={registro} despachar={despachar} iaAoVivo={original} irPara={irPara} />}
         {ctx && aba === "causas" && <Causas ctx={ctx} planos={dados?.origem === "padrao" ? correcoes : null} />}
         {ctx && base && aba === "simulador" && <Simulador base={base} />}
         {aba === "metodo" && <Metodo />}

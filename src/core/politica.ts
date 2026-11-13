@@ -8,11 +8,13 @@
  * Regras de autonomia:
  *  - Comunicação sem custo (mensagem informativa, pedido de foto, acionar a
  *    transportadora) é automática para todos os clientes.
- *  - Ação com custo é automática até R$ 65, exceto para cliente de alto valor.
- *  - Reembolso e cancelamento sempre passam por uma pessoa.
- *  - Avaria, vazamento e erro de personalização exigem foto antes do reenvio.
- *  - Uma mensagem que anuncia uma ação pendente espera junto com ela
- *    (`planejarMensagens`): a empresa nunca promete o que não foi aprovado.
+ *  - Toda ação que envolve dinheiro (reenvio, nova produção, substituto,
+ *    reembolso, cancelamento) passa por uma pessoa, de qualquer valor.
+ *  - Avaria, vazamento e erro de personalização exigem foto antes do reenvio:
+ *    primeiro a foto, depois a aprovação.
+ *  - A mensagem que anuncia ações com dinheiro só sai quando TODAS elas forem
+ *    aprovadas (`planejarMensagens` + `estadoMensagem`): a empresa nunca
+ *    promete o que não foi aprovado.
  */
 import type { ExcecaoAnalisada, TipoExcecao } from "./tipos";
 
@@ -41,14 +43,12 @@ export const ROTULO_ACAO: Record<Acao, string> = {
   abrir_chamado_interno: "Chamado interno",
 };
 
-/** Ações que custam dinheiro diretamente (o substituto custa a mercadoria e o frete) */
+/** Ações que custam mercadoria e frete (o substituto custa a mercadoria e o frete) */
 const ACOES_COM_CUSTO: ReadonlySet<Acao> = new Set(["reenviar", "nova_producao", "oferecer_substituto"]);
-/** Ações que sempre exigem uma pessoa */
-const ACOES_SEMPRE_COM_APROVACAO: ReadonlySet<Acao> = new Set(["reembolsar", "cancelar_pedido"]);
+/** Ações que envolvem dinheiro: todas exigem aprovação humana e são anunciadas ao cliente */
+export const ACOES_COM_DINHEIRO: ReadonlySet<Acao> = new Set([...ACOES_COM_CUSTO, "reembolsar", "cancelar_pedido"]);
 /** Ações que a política só libera depois da foto do cliente */
 const ACOES_QUE_EXIGEM_FOTO: ReadonlySet<Acao> = new Set(["reenviar", "nova_producao"]);
-/** Ações que o cliente fica sabendo pela mensagem (as internas não entram) */
-const ACOES_ANUNCIADAS_AO_CLIENTE: ReadonlySet<Acao> = new Set([...ACOES_COM_CUSTO, ...ACOES_SEMPRE_COM_APROVACAO]);
 
 export const TIPOS_QUE_EXIGEM_FOTO: ReadonlySet<TipoExcecao> = new Set([
   "avaria_transporte",
@@ -136,8 +136,6 @@ export const POLITICA: Record<TipoExcecao, RegraTipo> = {
   },
 };
 
-export const LIMITE_REENVIO_AUTOMATICO = 65;
-
 export type StatusAcao = "automatica" | "aguarda_foto" | "aguardando_aprovacao" | "bloqueada";
 
 export interface AvaliacaoAcao {
@@ -163,19 +161,11 @@ function avaliarSemFoto(acao: Acao, e: ExcecaoAnalisada): AvaliacaoAcao {
   if (!POLITICA[e.tipo_excecao].permitidas.includes(acao)) {
     return { acao, status: "bloqueada", motivo: `A política não permite "${ROTULO_ACAO[acao]}" para este tipo de exceção`, custoEstimado };
   }
-  if (ACOES_SEMPRE_COM_APROVACAO.has(acao)) {
-    return { acao, status: "aguardando_aprovacao", motivo: "Reembolsos e cancelamentos sempre passam por uma pessoa", custoEstimado };
-  }
-  if (!ACOES_COM_CUSTO.has(acao)) {
+  if (!ACOES_COM_DINHEIRO.has(acao)) {
     return { acao, status: "automatica", motivo: "Comunicação sem custo", custoEstimado };
   }
-  if (e.clienteVip) {
-    return { acao, status: "aguardando_aprovacao", motivo: `Custo de ${reais(custoEstimado)} para cliente de alto valor (receita acima de R$ 1.500)`, custoEstimado };
-  }
-  if (custoEstimado > LIMITE_REENVIO_AUTOMATICO) {
-    return { acao, status: "aguardando_aprovacao", motivo: `Custo de ${reais(custoEstimado)}, acima do limite automático de R$ ${LIMITE_REENVIO_AUTOMATICO}`, custoEstimado };
-  }
-  return { acao, status: "automatica", motivo: `Custo de ${reais(custoEstimado)}, dentro do limite automático`, custoEstimado };
+  const valor = custoEstimado > 0 ? ` (${reais(custoEstimado)})` : "";
+  return { acao, status: "aguardando_aprovacao", motivo: `Envolve dinheiro${valor}: precisa de aprovação humana`, custoEstimado };
 }
 
 export function avaliarAcao(acao: Acao, e: ExcecaoAnalisada): AvaliacaoAcao {
@@ -215,8 +205,13 @@ export function acoesPadrao(e: ExcecaoAnalisada): Acao[] {
 
 export interface MensagemPlanejada {
   texto: string;
+  /** Status no momento do planejamento (antes de foto e aprovações) */
   status: "automatica" | "aguardando_aprovacao" | "aguarda_foto";
   motivo: string;
+  /** Ações com dinheiro que a mensagem anuncia: ela só sai quando TODAS forem aprovadas */
+  dependeDe: Acao[];
+  /** A mensagem só sai depois da foto do cliente */
+  exigeFoto: boolean;
 }
 
 export function mensagemPedidoDeFoto(e: ExcecaoAnalisada): string {
@@ -224,28 +219,35 @@ export function mensagemPedidoDeFoto(e: ExcecaoAnalisada): string {
   return `Olá! Sentimos muito pelo problema com o seu pedido ${e.order_id} (${e.descricao_produto}). Para resolvermos o quanto antes, você pode nos enviar uma foto ${oQue}? Assim que recebermos, damos sequência à solução.`;
 }
 
+const listaRotulos = (acoes: readonly Acao[]) => acoes.map((a) => `"${ROTULO_ACAO[a].toLowerCase()}"`).join(" e ");
+
 /**
  * A mensagem segue o status das ações que ela anuncia, pela estrutura da
  * decisão e não pelo texto: não depende de o modelo se comportar.
- *  - Exige foto: agora sai o pedido de foto (texto fixo, sem promessa); a
- *    mensagem da solução fica para depois da foto.
- *  - Anuncia ação com custo que precisa de aprovação: espera a aprovação.
+ *  - Exige foto: o pedido de foto (texto fixo, sem promessa) sai na hora; a
+ *    mensagem da solução espera a foto E a aprovação de todas as ações com
+ *    dinheiro que anuncia.
+ *  - Anuncia ação com dinheiro: espera a aprovação de TODAS elas.
  *  - Caso contrário: informativa, automática.
  */
 export function planejarMensagens(texto: string, avaliacoes: readonly AvaliacaoAcao[], e: ExcecaoAnalisada): MensagemPlanejada[] {
-  const anunciadas = avaliacoes.filter((a) => ACOES_ANUNCIADAS_AO_CLIENTE.has(a.acao) && a.status !== "bloqueada");
-  const esperaFoto = anunciadas.find((a) => a.status === "aguarda_foto");
-  const pendente = anunciadas.find((a) => a.status === "aguardando_aprovacao");
+  const dependeDe = avaliacoes.filter((a) => ACOES_COM_DINHEIRO.has(a.acao) && a.status !== "bloqueada").map((a) => a.acao);
+  const exigeFoto = avaliacoes.some((a) => a.status === "aguarda_foto");
 
-  if (esperaFoto) {
-    const depois = esperaFoto.statusAposFoto === "automatica" ? "e sai automaticamente" : `e depois da aprovação de "${ROTULO_ACAO[esperaFoto.acao].toLowerCase()}"`;
+  if (exigeFoto) {
     return [
-      { texto: mensagemPedidoDeFoto(e), status: "automatica", motivo: "Pedido de foto exigido pela política, sem promessa" },
-      { texto, status: "aguarda_foto", motivo: `Anuncia a solução: sai quando a foto chegar ${depois}` },
+      { texto: mensagemPedidoDeFoto(e), status: "automatica", motivo: "Pedido de foto exigido pela política, sem promessa", dependeDe: [], exigeFoto: false },
+      {
+        texto,
+        status: "aguarda_foto",
+        motivo: `Anuncia a solução: sai quando a foto chegar${dependeDe.length ? ` e depois da aprovação de ${listaRotulos(dependeDe)}` : ""}`,
+        dependeDe,
+        exigeFoto: true,
+      },
     ];
   }
-  if (pendente) {
-    return [{ texto, status: "aguardando_aprovacao", motivo: `Anuncia "${ROTULO_ACAO[pendente.acao].toLowerCase()}", que precisa de aprovação: sai junto com ela` }];
+  if (dependeDe.length) {
+    return [{ texto, status: "aguardando_aprovacao", motivo: `Anuncia ${listaRotulos(dependeDe)}: só sai quando tudo for aprovado`, dependeDe, exigeFoto: false }];
   }
-  return [{ texto, status: "automatica", motivo: "Mensagem informativa ou ação já liberada" }];
+  return [{ texto, status: "automatica", motivo: "Mensagem informativa, sem dinheiro envolvido", dependeDe: [], exigeFoto: false }];
 }

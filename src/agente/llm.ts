@@ -89,6 +89,8 @@ export interface OpcoesGroq {
   tentativasPorModelo?: number;
   /** Espera máxima aceita num 429 antes de pular para o próximo modelo */
   esperaMaximaMs?: number;
+  /** Momento (Date.now()) a partir do qual não vale mais esperar: desiste para caber no tempo da função */
+  prazoFinal?: number;
 }
 
 /**
@@ -103,10 +105,11 @@ export class ClienteGroq implements ClienteLlm {
   }
 
   async completar(pedido: PedidoLlm): Promise<RespostaLlm> {
-    const { modelos, tentativasPorModelo = 3, esperaMaximaMs = 65_000 } = this.opcoes;
+    const { modelos, tentativasPorModelo = 3, esperaMaximaMs = 65_000, prazoFinal } = this.opcoes;
     let ultimoErro: unknown;
     for (const modelo of modelos) {
       for (let tentativa = 1; tentativa <= tentativasPorModelo; tentativa++) {
+        if (prazoFinal !== undefined && Date.now() >= prazoFinal) throw new ErroLlm("Tempo esgotado esperando o modelo", 504);
         try {
           return await this.chamar(pedido, modelo);
         } catch (e) {
@@ -116,6 +119,7 @@ export class ClienteGroq implements ClienteLlm {
           if (!recuperavel) break; // erro de requisição: tentar outro modelo
           const espera = e.tentarDeNovoEmMs ?? 2000 * tentativa;
           if (espera > esperaMaximaMs) break; // cota diária: próximo modelo
+          if (prazoFinal !== undefined && Date.now() + espera > prazoFinal) throw new ErroLlm("Tempo esgotado esperando o limite do modelo", 504);
           await esperar(espera + 250);
         }
       }
@@ -128,10 +132,17 @@ export class ClienteGroq implements ClienteLlm {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${this.opcoes.chave}` },
       body: JSON.stringify(corpoRequisicao(pedido, modelo)),
+      signal: this.opcoes.prazoFinal !== undefined ? AbortSignal.timeout(Math.max(1000, this.opcoes.prazoFinal - Date.now())) : undefined,
     });
     const texto = await res.text();
     if (!res.ok) throw new ErroLlm(`Groq ${res.status}: ${texto.slice(0, 300)}`, res.status, tempoDeEspera(res, texto));
-    const json = JSON.parse(texto);
+    let json;
+    try {
+      json = JSON.parse(texto);
+    } catch {
+      // Resposta malformada: erro recuperável, para tentar de novo ou passar ao próximo modelo.
+      throw new ErroLlm("Resposta do modelo não é JSON válido", 502);
+    }
     const msg = json.choices?.[0]?.message;
     if (!msg) throw new ErroLlm("Resposta sem mensagem", 502);
     return {
@@ -139,6 +150,14 @@ export class ClienteGroq implements ClienteLlm {
       modelo: json.model ?? modelo,
       tokens: json.usage?.total_tokens ?? 0,
     };
+  }
+}
+
+/** Cliente que sempre falha com um motivo: faz o agente cair na tratativa da política com o aviso certo. */
+export class ClienteIndisponivel implements ClienteLlm {
+  constructor(private readonly motivo: string) {}
+  async completar(): Promise<RespostaLlm> {
+    throw new ErroLlm(this.motivo, 503);
   }
 }
 

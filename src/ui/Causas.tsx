@@ -25,7 +25,8 @@ export function Causas({ ctx, planos }: { ctx: Contexto; planos: PlanoCorrecao[]
         <article className="causa causa--destaque">
           <h2>Data prometida calculada em dias corridos</h2>
           <p>
-            A regra explica {pct(1)} das {num(auditoria.pedidos)} datas: {auditoria.regraObservada}. {num(auditoria.atrasosDentroDoContrato)} dos{" "}
+            A regra explica {pct(auditoria.batemComCorridos / auditoria.pedidos)} das {num(auditoria.pedidos)} datas: {auditoria.regraObservada}.{" "}
+            {num(auditoria.atrasosDentroDoContrato)} dos{" "}
             {num(auditoria.atrasosTotal)} atrasos estão dentro do prazo contratado.
           </p>
           <PlanoDeCorrecao plano={planoDe("auditoria-prazo")} />

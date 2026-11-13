@@ -10,7 +10,7 @@ import {
   type PedidoLlm,
   type RespostaLlm,
 } from "@/agente";
-import { avaliarAcao } from "@/core";
+import { avaliarAcao, avaliarAcoes, planejarMensagens } from "@/core";
 import { baseReal } from "./carregar";
 
 const ctx = criarContexto(baseReal());
@@ -56,6 +56,7 @@ describe("investigarExcecao", () => {
     expect(llm.recebidos.at(-1)!.messages.filter((m) => m.role === "tool")).toHaveLength(2);
     expect(JSON.stringify(r.trilha[1].resultado)).toContain("faz_parte_de_causa_sistemica");
     expect(r.avaliacoes.map((a) => a.acao)).toEqual(["reenviar", "contatar_cliente"]);
+    expect(r.mensagens.length).toBeGreaterThan(0);
   });
 
   it("devolve o erro de validação ao modelo e aceita a correção", async () => {
@@ -82,18 +83,54 @@ describe("investigarExcecao", () => {
   });
 });
 
-describe("regras de autonomia (decisão B)", () => {
+describe("regras de autonomia", () => {
   const todas = ctx.analise.excecoes;
+  const vip = (tipo: string) => todas.find((e) => e.clienteVip && e.tipo_excecao === tipo)!;
+  const comum = (tipo: string, f: (c: number) => boolean = () => true) =>
+    todas.find((e) => !e.clienteVip && e.tipo_excecao === tipo && f(e.custoReenvio))!;
+
   it("reembolso sempre precisa de aprovação", () => {
-    expect(avaliarAcao("reembolsar", todas.find((e) => !e.clienteVip)!).status).toBe("aguardando_aprovacao");
+    expect(avaliarAcao("reembolsar", comum("atraso_entrega")).status).toBe("aguardando_aprovacao");
   });
-  it("cliente de alto valor sempre precisa de aprovação", () => {
-    expect(avaliarAcao("contatar_cliente", todas.find((e) => e.clienteVip)!).status).toBe("aguardando_aprovacao");
+  it("comunicação sem custo é automática mesmo para cliente de alto valor", () => {
+    expect(avaliarAcao("contatar_cliente", vip("atraso_entrega")).status).toBe("automatica");
+    expect(avaliarAcao("acionar_transportadora", vip("atraso_entrega")).status).toBe("automatica");
+  });
+  it("ação com custo para cliente de alto valor precisa de aprovação", () => {
+    expect(avaliarAcao("reenviar", vip("item_faltante")).status).toBe("aguardando_aprovacao");
   });
   it("reenvio barato é automático e caro precisa de aprovação", () => {
-    const faltantes = todas.filter((e) => e.tipo_excecao === "item_faltante" && !e.clienteVip);
-    expect(avaliarAcao("reenviar", faltantes.find((e) => e.custoReenvio <= 65)!).status).toBe("automatica");
-    expect(avaliarAcao("reenviar", faltantes.find((e) => e.custoReenvio > 65)!).status).toBe("aguardando_aprovacao");
+    expect(avaliarAcao("reenviar", comum("item_faltante", (c) => c <= 65)).status).toBe("automatica");
+    expect(avaliarAcao("reenviar", comum("item_faltante", (c) => c > 65)).status).toBe("aguardando_aprovacao");
+  });
+  it("avaria pede foto antes do reenvio, e o pedido de foto é incluído mesmo se o modelo esquecer", () => {
+    const e = comum("avaria_transporte", (c) => c <= 65);
+    const av = avaliarAcoes(["reenviar"], e);
+    expect(av.map((a) => a.acao)).toEqual(["solicitar_foto", "reenviar"]);
+    expect(av[0].status).toBe("automatica");
+    expect(av[1]).toMatchObject({ status: "aguarda_foto", statusAposFoto: "automatica" });
+  });
+});
+
+describe("mensagens ao cliente", () => {
+  const todas = ctx.analise.excecoes;
+  it("mensagem informativa sai na hora, mesmo para cliente de alto valor", () => {
+    const e = todas.find((x) => x.clienteVip && x.tipo_excecao === "atraso_entrega" && !x.perdaTravada)!;
+    const [m] = planejarMensagens("Acionamos a transportadora.", avaliarAcoes(["acionar_transportadora", "contatar_cliente"], e), e);
+    expect(m.status).toBe("automatica");
+  });
+  it("mensagem que anuncia reenvio pendente espera a aprovação", () => {
+    const e = todas.find((x) => x.clienteVip && x.tipo_excecao === "item_faltante")!;
+    const ms = planejarMensagens("Vamos reenviar o item.", avaliarAcoes(["reenviar", "contatar_cliente"], e), e);
+    expect(ms).toHaveLength(1);
+    expect(ms[0].status).toBe("aguardando_aprovacao");
+  });
+  it("com foto exigida, sai o pedido de foto (texto fixo) e a solução fica para depois", () => {
+    const e = todas.find((x) => x.tipo_excecao === "vazamento_produto")!;
+    const ms = planejarMensagens("Vamos reenviar de outro lote.", avaliarAcoes(["reenviar"], e), e);
+    expect(ms.map((m) => m.status)).toEqual(["automatica", "aguarda_foto"]);
+    expect(ms[0].texto).toContain("foto");
+    expect(ms[0].texto).not.toContain("reenviar");
   });
 });
 
@@ -102,7 +139,7 @@ describe("plano do dia", () => {
     const plano = await gerarPlanoDoDia(ctx, null);
     expect(plano.tratativas).toHaveLength(150);
     expect(plano.grupos.every((g) => g.fonte === "regras")).toBe(true);
-    expect(plano.resumo.automaticas + plano.resumo.aguardandoAprovacao + plano.resumo.bloqueadas).toBe(
+    expect(plano.resumo.automaticas + plano.resumo.aguardandoFoto + plano.resumo.aguardandoAprovacao + plano.resumo.bloqueadas).toBe(
       plano.tratativas.reduce((s, t) => s + t.acoes.length, 0),
     );
   });
@@ -121,7 +158,7 @@ describe("plano do dia", () => {
     const plano = await gerarPlanoDoDia(ctx, llm, { casosEspeciais: 0 });
     expect(llm.recebidos).toHaveLength(grupos.length);
     expect(plano.grupos.every((g) => g.fonte === "agente")).toBe(true);
-    expect(plano.tratativas[0].mensagem).not.toContain("{pedido}");
+    expect(plano.tratativas[0].mensagens[0].texto).not.toContain("{pedido}");
   });
 
   it("planos de correção incluem a auditoria da data prometida", async () => {

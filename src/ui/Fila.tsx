@@ -75,8 +75,16 @@ export function Fila({ ctx, plano, fonte, aoTrocarPlano }: Props) {
                 <dd>{num(plano.resumo.automaticas)}</dd>
               </div>
               <div>
+                <dt>Esperam a foto do cliente</dt>
+                <dd>{num(plano.resumo.aguardandoFoto)}</dd>
+              </div>
+              <div>
                 <dt>Precisam de aprovação</dt>
                 <dd>{num(plano.resumo.aguardandoAprovacao)}</dd>
+              </div>
+              <div>
+                <dt>Mensagens que saem agora</dt>
+                <dd>{num(plano.resumo.mensagensAgora)}</dd>
               </div>
               <div>
                 <dt>Custo já liberado</dt>
@@ -136,6 +144,7 @@ export function Fila({ ctx, plano, fonte, aoTrocarPlano }: Props) {
             <option value="">Todas</option>
             <option value="aguardando_aprovacao">Precisa de aprovação</option>
             <option value="automatica">Automática</option>
+            <option value="aguarda_foto">Depois da foto</option>
             <option value="bloqueada">Bloqueada</option>
           </select>
         </label>

@@ -40,7 +40,15 @@ Os mais atrasados, com custo de esperar zero, ficam ordenados entre si pela perd
 - **B, escolhida)** Autonomia dentro da política: contato, transportadora e reenvio até R$ 65 (90% dos reenvios custam menos) são automáticos; reembolso, cancelamento, cliente de alto valor e reenvio mais caro pedem aprovação.
 - **C)** Autonomia total: rápida, mas um erro do modelo vira dinheiro saindo da empresa.
 
-Efeito observado: com a frequência de compra no modelo, 53 dos 150 pedidos do dia são de clientes de alto valor, e todas as ações deles vão para aprovação (128 de 320 ações do dia). É a regra escolhida; se a carga de aprovação pesar, o ajuste natural é exigir aprovação só das ações com custo para esses clientes.
+Ajuste posterior (negócio): com a frequência de compra no modelo, 53 dos 150 pedidos do dia eram de clientes de alto valor, e todas as ações deles iam para aprovação, inclusive mensagens simples: 128 aprovações por dia, 59% delas só de comunicação. A regra foi refinada:
+- **Comunicação sem custo é automática para todos,** inclusive alto valor: mensagem informativa, pedido de foto, acionar a transportadora. O cliente mais valioso não espera uma aprovação para receber "estamos cuidando do seu pedido".
+- **A mensagem segue o status da ação que ela anuncia.** Se o reenvio precisa de aprovação, a mensagem que o anuncia espera junto e só sai quando a pessoa aprovar. A checagem é feita pela estrutura da decisão, não pelo texto, então não depende de o modelo se comportar. Isso fecha um risco que existia antes: anunciar ao cliente um reenvio que depois é recusado.
+- **Avaria, vazamento e erro de personalização começam pelo pedido de foto,** como a política exige. O pedido de foto é um texto fixo, sem promessa; a mensagem da solução sai depois da foto. Se o modelo esquecer o pedido de foto, o código o inclui.
+- Oferecer substituto passou a contar como ação com custo (mercadoria e frete).
+
+Resultado no dia: aprovações caem de 128 para 31 (todas com dinheiro envolvido: 26 reenvios e 5 substitutos), 36 ações esperam a foto e 119 mensagens saem na hora.
+
+Item faltante ficou sem exigência de foto: a política de atendimento menciona foto também para item faltante, mas a concentração no CD2 noite já é evidência suficiente. É um ponto a validar com o time.
 
 ## 6. Pedidos ligados a causas sistêmicas: híbrido (negócio)
 

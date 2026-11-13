@@ -3,7 +3,7 @@
  * contexto: o modelo de linguagem nunca inventa um número, ele consulta.
  */
 import { z } from "zod";
-import { ACOES, LIMITE_REENVIO_AUTOMATICO, POLITICA, TIPOS_EXCECAO, type ExcecaoAnalisada } from "@/core";
+import { ACOES, LIMITE_REENVIO_AUTOMATICO, POLITICA, TIPOS_EXCECAO, TIPOS_QUE_EXIGEM_FOTO, type ExcecaoAnalisada } from "@/core";
 import type { Contexto } from "./contexto";
 import type { DefinicaoFerramenta } from "./llm";
 
@@ -140,11 +140,13 @@ const executores: Record<NomeFerramentaConsulta, Executor> = {
       descricao: r.descricao,
       acoes_permitidas: r.permitidas,
       orientacao: r.orientacao,
+      exige_foto_antes_da_solucao: TIPOS_QUE_EXIGEM_FOTO.has(tipo_excecao),
       regras_de_autonomia: [
+        "Comunicação sem custo (mensagem informativa, pedido de foto, acionar transportadora) é automática para todos.",
+        `Reenvio, nova produção ou substituto: automático até R$ ${LIMITE_REENVIO_AUTOMATICO}; acima disso ou para cliente de alto valor (receita acima de R$ 1.500), exige aprovação.`,
         "Reembolso e cancelamento sempre exigem aprovação humana.",
-        "Qualquer ação para cliente de alto valor (receita acima de R$ 1.500) exige aprovação.",
-        `Reenvio ou nova produção acima de R$ ${LIMITE_REENVIO_AUTOMATICO} exige aprovação.`,
-        "Contato com cliente e acionamento de transportadora são automáticos.",
+        "Avaria, vazamento e erro de personalização: o sistema pede a foto primeiro; a sua mensagem é a que sai depois da foto.",
+        "A mensagem que anuncia uma ação pendente só sai quando a ação for aprovada.",
       ],
     };
   },

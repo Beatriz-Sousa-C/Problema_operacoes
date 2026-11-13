@@ -208,6 +208,7 @@ h3 { font-size: 1.05rem; font-weight: 650; }
 .chip__icone { width: 16px; height: 16px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 11px; font-weight: 800; color: #fff; }
 .chip--automatica .chip__icone, .chip--aprovada .chip__icone { background: var(--ok); }
 .chip--aguardando_aprovacao .chip__icone { background: var(--atencao); color: #0b0b0b; }
+.chip--aguarda_foto .chip__icone { background: var(--acento); }
 .chip--bloqueada .chip__icone, .chip--recusada .chip__icone { background: var(--critico); }
 .chip--recusada { text-decoration: line-through; color: var(--tinta-3); }
 
@@ -270,6 +271,10 @@ h3 { font-size: 1.05rem; font-weight: 650; }
 .painel__justificativa { color: var(--tinta-2); }
 .painel__chamado { background: var(--papel); padding: 10px 12px; border-radius: var(--raio); }
 .painel__meta { color: var(--tinta-3); font-size: 0.8125rem; }
+.mensagens { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; width: 100%; }
+.mensagens li { display: grid; gap: 6px; justify-items: start; }
+.mensagens__status { font-size: 0.8125rem; color: var(--tinta-2); }
+.mensagem--espera { background: var(--papel); border: 1px dashed var(--linha); }
 .mensagem { margin: 0; padding: 12px 14px; background: var(--acento-fundo); border-radius: var(--raio) var(--raio) var(--raio) 0; max-width: 100%; white-space: pre-wrap; }
 .aviso { color: var(--tinta); background: color-mix(in srgb, var(--atencao) 22%, var(--superficie)); padding: 8px 12px; border-radius: var(--raio); font-size: 0.875rem; }
 .trilha { margin: 0; padding-left: 20px; display: grid; gap: 6px; width: 100%; }

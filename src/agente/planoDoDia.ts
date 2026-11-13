@@ -8,7 +8,7 @@
  * Isso cabe na cota gratuita do modelo: ~20 chamadas por dia em vez de 150.
  */
 import { z } from "zod";
-import { ACOES, acoesPadrao, POLITICA, type AvaliacaoAcao, type CausaSistemica, type ExcecaoAnalisada } from "@/core";
+import { ACOES, acoesPadrao, POLITICA, TIPOS_QUE_EXIGEM_FOTO, type AvaliacaoAcao, type CausaSistemica, type ExcecaoAnalisada, type MensagemPlanejada } from "@/core";
 import { filaDoDia, type Contexto } from "./contexto";
 import type { ClienteLlm, DefinicaoFerramenta } from "./llm";
 import { avaliar, investigarExcecao, type ResultadoInvestigacao } from "./investigador";
@@ -114,7 +114,9 @@ export function planoGrupoPorRegras(g: Grupo): PlanoGrupo {
     justificativa: `Tratativa padrão da política: ${regra.orientacao}`,
     modelo_mensagem_cliente: g.perdaTravada
       ? "Olá! Seu pedido {pedido} foi entregue depois do prazo que informamos. Pedimos desculpas pelo transtorno."
-      : "Olá! Identificamos um problema com o seu pedido {pedido} ({produto}) e já estamos resolvendo. Em breve enviamos a atualização.",
+      : TIPOS_QUE_EXIGEM_FOTO.has(g.tipo)
+        ? "Obrigado pela foto! Já demos andamento à solução do seu pedido {pedido} ({produto}) e avisamos assim que estiver a caminho."
+        : "Olá! Identificamos um problema com o seu pedido {pedido} ({produto}) e já estamos resolvendo. Em breve enviamos a atualização.",
     chamado_lote: g.causa
       ? { destino: g.causa.dimensao, texto: `Lote de ${g.membros.length} pedidos com ${g.tipo} ligados a ${g.causa.grupo}. Favor investigar a causa.` }
       : null,
@@ -125,7 +127,7 @@ export interface TratativaPedido {
   id: string;
   grupo: string;
   acoes: AvaliacaoAcao[];
-  mensagem: string;
+  mensagens: MensagemPlanejada[];
   investigacao?: ResultadoInvestigacao;
 }
 
@@ -146,7 +148,17 @@ export interface PlanoDoDia {
   tokens: number;
   grupos: ResultadoGrupo[];
   tratativas: TratativaPedido[];
-  resumo: { automaticas: number; aguardandoAprovacao: number; bloqueadas: number; custoAutomatico: number; custoEmAprovacao: number };
+  resumo: {
+    automaticas: number;
+    aguardandoFoto: number;
+    aguardandoAprovacao: number;
+    bloqueadas: number;
+    custoAutomatico: number;
+    custoAposFoto: number;
+    custoEmAprovacao: number;
+    mensagensAgora: number;
+    mensagensEmEspera: number;
+  };
 }
 
 const preencher = (modelo: string, e: ExcecaoAnalisada) =>
@@ -191,7 +203,11 @@ export async function gerarPlanoDoDia(
     modelo ??= d.modelo;
     resultados.push({ chave: g.chave, tipo: g.tipo, causa: g.causa ? `${g.causa.dimensao}: ${g.causa.grupo}` : null, pedidos: g.membros.length, fonte: d.fonte, plano: d.plano, aviso: d.aviso });
     for (const e of g.membros) {
-      tratativas.push({ id: e.id, grupo: g.chave, acoes: avaliar({ ...d.plano, mensagem_cliente: "", confianca: "media" }, e), mensagem: preencher(d.plano.modelo_mensagem_cliente, e) });
+      const { avaliacoes, mensagens } = avaliar(
+        { ...d.plano, mensagem_cliente: preencher(d.plano.modelo_mensagem_cliente, e), confianca: "media" },
+        e,
+      );
+      tratativas.push({ id: e.id, grupo: g.chave, acoes: avaliacoes, mensagens });
     }
   }
 
@@ -204,13 +220,14 @@ export async function gerarPlanoDoDia(
       const t = tratativas.find((x) => x.id === e.id);
       if (t && inv.fonte === "agente") {
         t.acoes = inv.avaliacoes;
-        t.mensagem = inv.decisao.mensagem_cliente;
+        t.mensagens = inv.mensagens;
       }
       if (t) t.investigacao = inv;
     }
   }
 
   const todas = tratativas.flatMap((t) => t.acoes);
+  const mensagens = tratativas.flatMap((t) => t.mensagens);
   const somaCusto = (s: AvaliacaoAcao["status"]) => r2(todas.filter((a) => a.status === s).reduce((x, a) => x + a.custoEstimado, 0));
   return {
     geradoEm: new Date().toISOString(),
@@ -221,10 +238,14 @@ export async function gerarPlanoDoDia(
     tratativas,
     resumo: {
       automaticas: todas.filter((a) => a.status === "automatica").length,
+      aguardandoFoto: todas.filter((a) => a.status === "aguarda_foto").length,
       aguardandoAprovacao: todas.filter((a) => a.status === "aguardando_aprovacao").length,
       bloqueadas: todas.filter((a) => a.status === "bloqueada").length,
       custoAutomatico: somaCusto("automatica"),
+      custoAposFoto: somaCusto("aguarda_foto"),
       custoEmAprovacao: somaCusto("aguardando_aprovacao"),
+      mensagensAgora: mensagens.filter((m) => m.status === "automatica").length,
+      mensagensEmEspera: mensagens.filter((m) => m.status !== "automatica").length,
     },
   };
 }

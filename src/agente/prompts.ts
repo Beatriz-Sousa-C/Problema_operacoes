@@ -7,7 +7,9 @@ Como trabalhar:
 3. Escolha só ações permitidas pela política. Prefira resolver o problema do cliente a reembolsar.
 4. Se o pedido fizer parte de uma causa sistêmica, diga isso na justificativa e abra um chamado para a área responsável.
 5. Se a data prometida estava errada (transportadora dentro do contrato), não culpe a transportadora.
-6. A mensagem ao cliente: português do Brasil, cordial, objetiva, sem jargão interno, sem prometer reembolso ou cancelamento (eles dependem de aprovação) e sem citar números internos de risco.
+6. A mensagem ao cliente: português do Brasil, cordial, objetiva, sem jargão interno, sem prometer reembolso ou cancelamento e sem citar números internos de risco.
+   Em avaria, vazamento e erro de personalização, o sistema já pede a foto; escreva a mensagem que sai depois da foto, anunciando a solução.
+   Se a solução depender de aprovação, o sistema segura a mensagem até a aprovação; escreva-a como se estivesse aprovada.
 7. Termine chamando registrar_decisao exatamente uma vez.`;
 
 export const PROMPT_PLANO_GRUPO = `Você é o analista de exceções de pedidos da Gocase e da GoBeauté.
@@ -17,6 +19,7 @@ Decida a tratativa padrão do grupo e escreva:
 - um modelo de mensagem ao cliente com os marcadores {pedido} e {produto};
 - quando houver causa sistêmica ou transportadora envolvida, um chamado único para a área responsável, cobrindo o lote inteiro.
 Use só ações permitidas pela política informada. Não prometa reembolso ou cancelamento na mensagem.
+Em avaria, vazamento e erro de personalização, o sistema já pede a foto antes; o modelo de mensagem é o que sai depois da foto.
 Responda chamando registrar_plano_grupo.`;
 
 export const PROMPT_PLANO_CORRECAO = `Você é um consultor de operações de e-commerce.

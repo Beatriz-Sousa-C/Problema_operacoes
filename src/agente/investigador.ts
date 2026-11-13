@@ -3,7 +3,7 @@
  * O modelo consulta o sistema quantas vezes precisar e termina registrando
  * uma decisão estruturada, que é validada pelo código antes de valer.
  */
-import { acoesPadrao, avaliarAcao, POLITICA, type AvaliacaoAcao, type ExcecaoAnalisada } from "@/core";
+import { acoesPadrao, avaliarAcoes, mensagemPedidoDeFoto, planejarMensagens, POLITICA, TIPOS_QUE_EXIGEM_FOTO, type AvaliacaoAcao, type ExcecaoAnalisada, type MensagemPlanejada } from "@/core";
 import type { Contexto } from "./contexto";
 import {
   ESQUEMA_DECISAO,
@@ -26,6 +26,8 @@ export interface ResultadoInvestigacao {
   fonte: "agente" | "regras";
   decisao: DecisaoAgente;
   avaliacoes: AvaliacaoAcao[];
+  /** Mensagens ao cliente com o status que a política permite */
+  mensagens: MensagemPlanejada[];
   trilha: PassoTrilha[];
   modelo?: string;
   tokens: number;
@@ -43,15 +45,20 @@ export function decisaoPorRegras(e: ExcecaoAnalisada): DecisaoAgente {
     justificativa: `Tratativa padrão da política para ${regra.descricao.toLowerCase()}. ${regra.orientacao}`,
     mensagem_cliente: e.perdaTravada
       ? `Olá! Seu pedido ${e.order_id} foi entregue depois do prazo que informamos. Pedimos desculpas pelo transtorno e seguimos à disposição.`
-      : `Olá! Identificamos um problema com o seu pedido ${e.order_id} (${e.descricao_produto}) e já estamos resolvendo. Em breve enviamos a atualização.`,
+      : TIPOS_QUE_EXIGEM_FOTO.has(e.tipo_excecao)
+        ? `Obrigado pela foto! Já demos andamento à solução do seu pedido ${e.order_id} (${e.descricao_produto}) e avisamos assim que estiver a caminho.`
+        : `Olá! Identificamos um problema com o seu pedido ${e.order_id} (${e.descricao_produto}) e já estamos resolvendo. Em breve enviamos a atualização.`,
     chamado: null,
     confianca: "media",
   };
 }
 
-export function avaliar(decisao: DecisaoAgente, e: ExcecaoAnalisada): AvaliacaoAcao[] {
-  return decisao.acoes.map((a) => avaliarAcao(a, e));
+export function avaliar(decisao: DecisaoAgente, e: ExcecaoAnalisada): { avaliacoes: AvaliacaoAcao[]; mensagens: MensagemPlanejada[] } {
+  const avaliacoes = avaliarAcoes(decisao.acoes, e);
+  return { avaliacoes, mensagens: planejarMensagens(decisao.mensagem_cliente, avaliacoes, e) };
 }
+
+export { mensagemPedidoDeFoto };
 
 export async function investigarExcecao(ctx: Contexto, llm: ClienteLlm, id: string): Promise<ResultadoInvestigacao> {
   const item = ctx.porId.get(id);
@@ -100,7 +107,7 @@ export async function investigarExcecao(ctx: Contexto, llm: ClienteLlm, id: stri
           const validado = ESQUEMA_DECISAO.safeParse(bruto);
           if (validado.success) {
             trilha.push({ ferramenta: c.function.name, argumentos: validado.data, resultado: "decisão registrada" });
-            return { id, fonte: "agente", decisao: validado.data, avaliacoes: avaliar(validado.data, e), trilha, modelo, tokens };
+            return { id, fonte: "agente", decisao: validado.data, ...avaliar(validado.data, e), trilha, modelo, tokens };
           }
           // Autocorreção: devolve o erro de validação para o modelo tentar de novo.
           const erro = validado.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
@@ -126,7 +133,7 @@ export async function investigarExcecao(ctx: Contexto, llm: ClienteLlm, id: stri
       id,
       fonte: "regras",
       decisao,
-      avaliacoes: avaliar(decisao, e),
+      ...avaliar(decisao, e),
       trilha,
       modelo,
       tokens,

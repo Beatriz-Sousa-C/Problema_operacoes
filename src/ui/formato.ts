@@ -29,12 +29,14 @@ export const ROTULO_TIPO: Record<TipoExcecao, string> = {
 
 export const ROTULO_STATUS: Record<StatusAcao, string> = {
   automatica: "Automática",
+  aguarda_foto: "Depois da foto do cliente",
   aguardando_aprovacao: "Precisa de aprovação",
   bloqueada: "Bloqueada pela política",
 };
 
 export const ICONE_STATUS: Record<StatusAcao, string> = {
   automatica: "✓",
+  aguarda_foto: "◔",
   aguardando_aprovacao: "!",
   bloqueada: "×",
 };

@@ -29,12 +29,12 @@ export function PainelPedido({ ctx, item, tratativa, aprovacoes, aoDecidir, aoFe
   const e = item.excecao;
   const [investigacao, setInvestigacao] = useState<ResultadoInvestigacao | undefined>(tratativa?.investigacao);
   const [carregando, setCarregando] = useState(false);
-  const [copiado, setCopiado] = useState(false);
+  const [copiado, setCopiado] = useState<number | null>(null);
   const fecharRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setInvestigacao(tratativa?.investigacao);
-    setCopiado(false);
+    setCopiado(null);
     fecharRef.current?.focus();
   }, [e.id, tratativa]);
 
@@ -54,7 +54,7 @@ export function PainelPedido({ ctx, item, tratativa, aprovacoes, aoDecidir, aoFe
   }
 
   const acoes = investigacao?.avaliacoes ?? tratativa?.acoes ?? [];
-  const mensagem = investigacao?.decisao.mensagem_cliente ?? tratativa?.mensagem ?? "";
+  const mensagens = investigacao?.mensagens ?? tratativa?.mensagens ?? [];
   const causas = ctx.causasPorPedido.get(e.id) ?? [];
 
   return (
@@ -99,7 +99,7 @@ export function PainelPedido({ ctx, item, tratativa, aprovacoes, aoDecidir, aoFe
             return (
               <li key={a.acao}>
                 <ChipAcao avaliacao={a} decisao={aprovacoes[chave]} />
-                <span className="painel__motivo">{a.motivo}{a.custoEstimado ? `. Custo ${brl2(a.custoEstimado)}` : ""}</span>
+                <span className="painel__motivo">{a.motivo}{a.custoEstimado && !a.motivo.includes("R$") ? `. Custo ${brl2(a.custoEstimado)}` : ""}</span>
                 {a.status === "aguardando_aprovacao" && !aprovacoes[chave] && (
                   <span className="painel__aprovar">
                     <button className="botao botao--pequeno" onClick={() => aoDecidir(chave, "aprovada")}>
@@ -123,14 +123,25 @@ export function PainelPedido({ ctx, item, tratativa, aprovacoes, aoDecidir, aoFe
       </section>
 
       <section>
-        <h3>Mensagem para o cliente</h3>
-        <blockquote className="mensagem">{mensagem}</blockquote>
-        <button
-          className="botao-texto"
-          onClick={() => navigator.clipboard.writeText(mensagem).then(() => setCopiado(true))}
-        >
-          {copiado ? "Mensagem copiada" : "Copiar mensagem"}
-        </button>
+        <h3>{mensagens.length > 1 ? "Mensagens para o cliente" : "Mensagem para o cliente"}</h3>
+        <ol className="mensagens">
+          {mensagens.map((m, i) => {
+            const aprovada = acoes.some((a) => a.status === "aguardando_aprovacao" && aprovacoes[`${e.id}|${a.acao}`] === "aprovada");
+            const liberada = m.status === "automatica" || (m.status === "aguardando_aprovacao" && aprovada);
+            return (
+              <li key={i}>
+                <span className="mensagens__status">
+                  {m.status === "automatica" ? "Sai agora. " : m.status === "aguarda_foto" ? "Sai depois da foto. " : liberada ? "Liberada pela aprovação. " : "Espera a aprovação. "}
+                  {m.motivo}.
+                </span>
+                <blockquote className={`mensagem${liberada ? "" : " mensagem--espera"}`}>{m.texto}</blockquote>
+                <button className="botao-texto" onClick={() => navigator.clipboard.writeText(m.texto).then(() => setCopiado(i))}>
+                  {copiado === i ? "Mensagem copiada" : "Copiar mensagem"}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
       </section>
 
       <section>

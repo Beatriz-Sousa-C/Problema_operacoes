@@ -38,9 +38,11 @@ export function Metodo() {
           <li>Escreve um plano de correção para cada causa de processo, endereçado à área responsável.</li>
         </ul>
         <p>
-          A IA propõe; o código decide o que pode ser executado. Contato com o cliente e acionamento de transportadora são automáticos. Reenvio e nova
-          produção são automáticos até R$ {LIMITE_REENVIO_AUTOMATICO}. Reembolsos, cancelamentos, clientes de alto valor e reenvios mais caros
-          esperam aprovação. Ação fora da política é bloqueada. Se a IA estiver fora do ar, o sistema usa a tratativa padrão da política e avisa.
+          A IA propõe; o código decide o que pode ser executado. Mensagens informativas, pedidos de foto e acionamento de transportadora são
+          automáticos para todos. Reenvio, nova produção e substituto são automáticos até R$ {LIMITE_REENVIO_AUTOMATICO}; acima disso ou para cliente
+          de alto valor, esperam aprovação, assim como reembolsos e cancelamentos. Em avaria, vazamento e erro de personalização, a solução só anda
+          depois da foto do cliente. A mensagem que anuncia uma ação pendente espera junto com ela, para a empresa nunca prometer o que não foi
+          aprovado. Ação fora da política é bloqueada. Se a IA estiver fora do ar, o sistema usa a tratativa padrão da política e avisa.
         </p>
       </section>
 

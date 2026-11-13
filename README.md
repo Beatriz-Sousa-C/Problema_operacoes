@@ -46,11 +46,14 @@ O agente não é um chat: ele trabalha na fila do dia e produz tratativas execut
 
 | Ação | Status |
 |---|---|
-| Contatar cliente, acionar transportadora, oferecer substituto | Automática |
-| Reenvio ou nova produção até R$ 65 | Automática |
-| Reenvio acima de R$ 65, qualquer ação para cliente de alto valor | Precisa de aprovação |
+| Mensagem informativa, pedido de foto, acionar transportadora | Automática para todos os clientes |
+| Reenvio, nova produção ou substituto até R$ 65 | Automática |
+| Reenvio, nova produção ou substituto acima de R$ 65, ou para cliente de alto valor | Precisa de aprovação |
 | Reembolso, cancelamento | Sempre precisa de aprovação |
+| Reenvio em avaria, vazamento e erro de personalização | Depois da foto do cliente, segue a regra acima |
 | Ação fora da política para o tipo de exceção | Bloqueada |
+
+A mensagem ao cliente segue o status da ação que ela anuncia: se o reenvio espera aprovação, a mensagem que o anuncia espera junto. Assim a empresa nunca promete o que ainda não foi aprovado. No dia de referência: 31 aprovações (todas com dinheiro), 36 ações esperando foto e 119 mensagens saindo na hora.
 
 Se o modelo devolver algo fora do formato, o erro volta para ele corrigir. Se a IA estiver fora do ar ou sem cota, o sistema aplica a tratativa padrão da política e avisa na tela: a operação nunca para.
 

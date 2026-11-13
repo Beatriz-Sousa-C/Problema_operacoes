@@ -6,3 +6,4 @@ export * from "./risco";
 export * from "./priorizacao";
 export * from "./simulacao";
 export * from "./causas";
+export * from "./politica";

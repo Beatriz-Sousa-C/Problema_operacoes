@@ -54,6 +54,16 @@ describe("briefing do dia", () => {
     expect(JSON.stringify(llm.recebidos[1].messages.at(-1))).toMatch(/links/);
   });
 
+  it("separa o que é decisão da liderança do que é espera ou já foi feito, e tira a numeração dupla", async () => {
+    const d = dadosDoBriefing(ctx, plano);
+    expect(Object.keys(d.depende_de_aprovacao_humana)).toEqual(["acoes_com_dinheiro_aguardando_aprovacao", "custo_das_acoes_em_aprovacao"]);
+    expect(d.depende_do_cliente.pedidos_esperando_o_cliente_mandar_foto).toBe(plano.resumo.aguardandoFoto);
+    expect(d.ja_feito_automaticamente_sem_aprovacao.mensagens_informativas_enviadas_automaticamente).toBe(plano.resumo.mensagensAgora);
+    const numerado = { ...bom, prioridades: ["1. Aprovar as ações. Operações.", "2) Corrigir a data. Tecnologia.", "3 - Calibrar a IMP-02. Manutenção."] };
+    const b = await gerarBriefing(ctx, new LlmRoteirizado([() => chamada(numerado)]), plano);
+    expect(b.prioridades).toEqual(["Aprovar as ações. Operações.", "Corrigir a data. Tecnologia.", "Calibrar a IMP-02. Manutenção."]);
+  });
+
   it("se o modelo falhar duas vezes ou estourar, vale o briefing por regras", async () => {
     const ruim = new LlmRoteirizado([() => chamada({ titulo: "x" }), () => chamada({ titulo: "y" })]);
     expect((await gerarBriefing(ctx, ruim, plano)).fonte).toBe("regras");

@@ -96,13 +96,13 @@ export const POLITICA: Record<TipoExcecao, RegraTipo> = {
     descricao: "Produto avariado no transporte",
     permitidas: [...COMUNS, "solicitar_foto", "acionar_transportadora", "reenviar"],
     padrao: ["solicitar_foto", "reenviar", "acionar_transportadora"],
-    orientacao: "Pedir a foto; com ela, reenvio sem custo em até 7 dias do recebimento. Abrir sinistro na transportadora.",
+    orientacao: "Pedir a foto; com ela, reenvio sem custo (vale para reclamações feitas em até 7 dias depois de o cliente receber o pedido; não é prazo de entrega). Abrir sinistro na transportadora.",
   },
   vazamento_produto: {
     descricao: "Produto chegou vazando",
     permitidas: [...COMUNS, "solicitar_foto", "reenviar"],
     padrao: ["solicitar_foto", "reenviar"],
-    orientacao: "Pedir a foto; com ela, reenvio sem custo em até 7 dias do recebimento. Reenviar de outro lote se o lote estiver sob suspeita.",
+    orientacao: "Pedir a foto; com ela, reenvio sem custo (vale para reclamações feitas em até 7 dias depois de o cliente receber o pedido; não é prazo de entrega). Reenviar de outro lote se o lote estiver sob suspeita.",
   },
   item_faltante: {
     descricao: "Item faltando no pedido",
@@ -209,14 +209,26 @@ export function acoesPadrao(e: ExcecaoAnalisada): Acao[] {
  * decididas e nenhum número interno de risco. Problemas voltam ao modelo
  * como erro de validação para ele corrigir; se insistir, cai na política.
  */
-export function problemasDaMensagem(texto: string, acoes: readonly Acao[]): string[] {
+export function problemasDaMensagem(texto: string, acoes: readonly Acao[], contexto: { tipo?: TipoExcecao } = {}): string[] {
   const problemas: string[] = [];
   const t = texto.toLowerCase();
+  // Nos tipos com foto, o sistema já pediu a foto: esta mensagem sai DEPOIS dela e não pode pedir de novo.
+  const fluxoComFoto = contexto.tipo !== undefined && TIPOS_QUE_EXIGEM_FOTO.has(contexto.tipo) && acoes.some((a) => ACOES_QUE_EXIGEM_FOTO.has(a));
+  if (fluxoComFoto && /(envi|mand|anex|compartilh)\w*[^.!?]{0,40}foto/.test(t)) {
+    problemas.push("pede a foto, mas o sistema já pediu; esta mensagem sai depois que a foto chega e deve anunciar a solução");
+  }
+  if (/^\s*(ol[áa]|oi|bom dia|boa tarde|boa noite)\s*,?\s*(\{pedido\}|[A-Z]{2}\d{5,})/i.test(texto)) {
+    problemas.push("usa o número do pedido como nome do cliente na saudação");
+  }
   if (/https?:\/\/|www\.|\.com\b|\.br\b/i.test(texto)) problemas.push("contém link ou endereço de site");
   if (!acoes.includes("reembolsar") && /reembols|estorn|devolu[çc][aã]o do (valor|dinheiro)/.test(t)) {
     problemas.push('promete reembolso sem a ação "reembolsar"');
   }
   if (!acoes.includes("cancelar_pedido") && /cancel/.test(t)) problemas.push('fala em cancelamento sem a ação "cancelar_pedido"');
+  // O sistema não sabe quando o reenvio chega: nenhuma mensagem promete prazo em dias.
+  if (/\b(em até|dentro de|no prazo de|em no máximo|em)\s+\d+\s+dias\b/.test(t)) {
+    problemas.push("promete um prazo em dias que o sistema não informou");
+  }
   if (/custo de esperar|valor em jogo|probabilidade|p-valor|perda esperada|\bvip\b|alto valor/.test(t)) {
     problemas.push("cita números ou classificações internas de risco");
   }

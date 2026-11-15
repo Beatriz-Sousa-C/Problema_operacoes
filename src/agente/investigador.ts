@@ -39,10 +39,10 @@ export interface ResultadoInvestigacao {
 const MAX_PASSOS = 6;
 
 /** Erros de validação da decisão: formato (zod) e conteúdo da mensagem (política). */
-export function validarDecisao(bruto: unknown): { ok: true; decisao: DecisaoAgente } | { ok: false; erro: string } {
+export function validarDecisao(bruto: unknown, e?: Pick<ExcecaoAnalisada, "tipo_excecao">): { ok: true; decisao: DecisaoAgente } | { ok: false; erro: string } {
   const v = ESQUEMA_DECISAO.safeParse(bruto);
   if (!v.success) return { ok: false, erro: v.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
-  const problemas = problemasDaMensagem(v.data.mensagem_cliente, v.data.acoes);
+  const problemas = problemasDaMensagem(v.data.mensagem_cliente, v.data.acoes, { tipo: e?.tipo_excecao });
   if (problemas.length) return { ok: false, erro: `mensagem_cliente: ${problemas.join("; ")}` };
   return { ok: true, decisao: v.data };
 }
@@ -114,7 +114,7 @@ export async function investigarExcecao(ctx: Contexto, llm: ClienteLlm, id: stri
               return null;
             }
           })();
-          const validado = validarDecisao(bruto);
+          const validado = validarDecisao(bruto, e);
           if (validado.ok) {
             trilha.push({ ferramenta: c.function.name, argumentos: validado.decisao, resultado: "decisão registrada" });
             return { id, fonte: "agente", decisao: validado.decisao, ...avaliar(validado.decisao, e), trilha, modelo, tokens };

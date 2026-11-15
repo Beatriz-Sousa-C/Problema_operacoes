@@ -94,11 +94,12 @@ function resumoGrupo(g: Grupo) {
     valor_total_pedidos: r2(soma((e) => e.valor)),
     valor_em_jogo_total: r2(soma((e) => e.valorEmJogo)),
     custo_de_esperar_total: r2(soma((e) => e.custoDeEsperar)),
-    atraso_medio_dias_uteis: r2(soma((e) => e.atrasoAtual) / n),
+    atraso_medio_dias_uteis_vs_data_prometida_ao_cliente: r2(soma((e) => e.atrasoAtual) / n),
+    atraso_medio_dias_uteis_vs_prazo_contratado_com_a_transportadora: r2(soma((e) => e.atrasoVsContrato) / n),
+    pedidos_atrasados_mas_dentro_do_prazo_contratado: g.membros.filter((e) => e.atrasoAtual > 0 && e.atrasoVsContrato === 0).length,
     clientes_alto_valor: g.membros.filter((e) => e.clienteVip).length,
     custo_medio_reenvio: r2(soma((e) => e.custoReenvio) / n),
     transportadoras: contagem((e) => e.transportadora),
-    atrasos_dentro_do_prazo_contratado: g.membros.filter((e) => e.atrasoAtual > 0 && e.atrasoVsContrato === 0).length,
     causa_sistemica: g.causa
       ? { causa: `${g.causa.dimensao}: ${g.causa.grupo}`, vezes_acima_do_normal: r2(g.causa.lift), total_na_base: g.causa.observado }
       : null,
@@ -177,10 +178,10 @@ export interface DecisaoGrupo {
 }
 
 /** Formato (zod) e conteúdo da mensagem (política): o que o código exige do plano do grupo. */
-export function validarPlanoGrupo(bruto: unknown): { ok: true; plano: PlanoGrupo } | { ok: false; erro: string } {
+export function validarPlanoGrupo(bruto: unknown, tipo?: TipoExcecao): { ok: true; plano: PlanoGrupo } | { ok: false; erro: string } {
   const v = ESQUEMA_PLANO_GRUPO.safeParse(bruto);
   if (!v.success) return { ok: false, erro: v.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
-  const problemas = problemasDaMensagem(v.data.modelo_mensagem_cliente, v.data.acoes);
+  const problemas = problemasDaMensagem(v.data.modelo_mensagem_cliente, v.data.acoes, { tipo });
   if (problemas.length) return { ok: false, erro: `modelo_mensagem_cliente: ${problemas.join("; ")}` };
   return { ok: true, plano: v.data };
 }
@@ -206,7 +207,7 @@ export async function decidirGrupo(llm: ClienteLlm | null, g: Grupo): Promise<De
       } catch {
         /* fica null e falha na validação */
       }
-      const v = validarPlanoGrupo(bruto);
+      const v = validarPlanoGrupo(bruto, g.tipo);
       if (v.ok) return { plano: v.plano, fonte: "agente", modelo, tokens };
       if (tentativa === 2) throw new Error(`plano do grupo inválido: ${v.erro}`);
       mensagens.push(r.mensagem, {
@@ -541,12 +542,18 @@ export function dadosDoBriefing(ctx: Contexto, plano: PlanoDoDia) {
       ja_comprometido_pelo_atraso_atual: r2(sim.perdaInevitavel),
       fracao_do_recuperavel_capturada: r2(sim.eficiencia),
     },
-    depende_da_lideranca: {
+    // Separado com cuidado: só a primeira parte depende de uma decisão humana.
+    depende_de_aprovacao_humana: {
       acoes_com_dinheiro_aguardando_aprovacao: plano.resumo.aguardandoAprovacao,
       custo_das_acoes_em_aprovacao: plano.resumo.custoEmAprovacao,
-      pedidos_aguardando_foto_do_cliente: plano.resumo.aguardandoFoto,
-      mensagens_que_saem_automaticamente: plano.resumo.mensagensAgora,
-      chamados_em_lote_abertos: plano.grupos.filter((g) => g.plano.chamado_lote).length,
+    },
+    depende_do_cliente: {
+      pedidos_esperando_o_cliente_mandar_foto: plano.resumo.aguardandoFoto,
+      observacao: "o pedido de foto já foi enviado ao cliente automaticamente; a empresa só espera a resposta",
+    },
+    ja_feito_automaticamente_sem_aprovacao: {
+      mensagens_informativas_enviadas_automaticamente: plano.resumo.mensagensAgora,
+      chamados_em_lote_abertos_para_transportadoras_e_areas: plano.grupos.filter((g) => g.plano.chamado_lote).length,
     },
     causas_de_processo: causas.slice(0, 6).map((c) => {
       const mes = projetarPorMes(c, p.janelaDias);
@@ -576,7 +583,7 @@ export function briefingPorRegras(ctx: Contexto, plano: PlanoDoDia, geradoEm = n
   const perdas = d.perdas_esperadas_ate_zerar_a_fila;
   const causas = d.causas_de_processo;
   const prioridades: string[] = [
-    `Aprovar as ${d.depende_da_lideranca.acoes_com_dinheiro_aguardando_aprovacao} ações com dinheiro da fila de hoje (${brlCurto(d.depende_da_lideranca.custo_das_acoes_em_aprovacao)}): elas protegem ${brlCurto(d.fila.valor_em_jogo_hoje)} em jogo. Operações.`,
+    `Aprovar as ${d.depende_de_aprovacao_humana.acoes_com_dinheiro_aguardando_aprovacao} ações com dinheiro da fila de hoje (${brlCurto(d.depende_de_aprovacao_humana.custo_das_acoes_em_aprovacao)}): elas protegem ${brlCurto(d.fila.valor_em_jogo_hoje)} em jogo. Operações.`,
   ];
   if (d.data_prometida) {
     prioridades.push(
@@ -595,7 +602,7 @@ export function briefingPorRegras(ctx: Contexto, plano: PlanoDoDia, geradoEm = n
     paragrafos: [
       `A fila tem ${d.fila.excecoes_abertas} exceções abertas e leva ${d.fila.dias_uteis_para_zerar} dias úteis para zerar com ${d.fila.capacidade_por_dia} tratativas por dia. Hoje entram ${d.fila.pedidos_de_hoje} pedidos, com ${brlCurto(d.fila.valor_em_jogo_hoje)} em jogo; tratá-los hoje em vez de deixá-los para o fim evita ${brlCurto(d.fila.perda_evitada_por_tratar_hoje)} de perda adicional.`,
       `Pela ordem de chegada, a perda esperada até zerar é de ${brlCurto(perdas.ordem_de_chegada_processo_atual)}; pelo custo de esperar, ${brlCurto(perdas.custo_de_esperar_solucao)}. São ${brlCurto(perdas.recuperado_pela_solucao)} recuperados e ${perdas.cancelamentos_a_menos} cancelamentos a menos, sem contratar ninguém. ${brlCurto(perdas.ja_comprometido_pelo_atraso_atual)} já estão comprometidos pelo atraso acumulado e nenhuma ordem recupera.`,
-      `Dependem da liderança: ${d.depende_da_lideranca.acoes_com_dinheiro_aguardando_aprovacao} ações com dinheiro (${brlCurto(d.depende_da_lideranca.custo_das_acoes_em_aprovacao)}) e ${d.depende_da_lideranca.pedidos_aguardando_foto_do_cliente} pedidos esperam a foto do cliente. ${d.depende_da_lideranca.mensagens_que_saem_automaticamente} mensagens saem automaticamente e ${d.depende_da_lideranca.chamados_em_lote_abertos} chamados em lote já foram abertos.`,
+      `Dependem da liderança só as ${d.depende_de_aprovacao_humana.acoes_com_dinheiro_aguardando_aprovacao} ações com dinheiro (${brlCurto(d.depende_de_aprovacao_humana.custo_das_acoes_em_aprovacao)}). O resto já andou sozinho: ${d.ja_feito_automaticamente_sem_aprovacao.mensagens_informativas_enviadas_automaticamente} mensagens informativas saíram, ${d.ja_feito_automaticamente_sem_aprovacao.chamados_em_lote_abertos_para_transportadoras_e_areas} chamados em lote foram abertos e ${d.depende_do_cliente.pedidos_esperando_o_cliente_mandar_foto} pedidos esperam a foto que o cliente vai mandar.`,
       causas.length
         ? `As exceções nascem em ${causas.length} causas de processo confirmadas. As maiores: ${causas
             .slice(0, 3)
@@ -632,7 +639,11 @@ export async function gerarBriefing(ctx: Contexto, llm: ClienteLlm | null, plano
         : [v.data.titulo, ...v.data.paragrafos, ...v.data.prioridades].some(temLink)
           ? "não inclua links"
           : null;
-      if (!erro && v.success) return { ...v.data, fonte: "agente", modelo: r.modelo, geradoEm: new Date().toISOString() };
+      if (!erro && v.success) {
+        // A tela já numera a lista: tira "1." ou "1)" que o modelo tenha posto no texto.
+        const prioridades = v.data.prioridades.map((x) => x.replace(/^\s*\d+\s*[.)\-–:]\s*/, ""));
+        return { ...v.data, prioridades, fonte: "agente", modelo: r.modelo, geradoEm: new Date().toISOString() };
+      }
       if (tentativa === 2) break;
       mensagens.push(r.mensagem, {
         role: "tool",

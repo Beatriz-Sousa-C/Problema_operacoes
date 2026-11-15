@@ -91,6 +91,8 @@ export interface OpcoesGroq {
   esperaMaximaMs?: number;
   /** Momento (Date.now()) a partir do qual não vale mais esperar: desiste para caber no tempo da função */
   prazoFinal?: number;
+  /** Tempo máximo de uma única requisição HTTP (padrão 60 s): uma chamada pendurada nunca trava o build */
+  timeoutMs?: number;
 }
 
 /**
@@ -128,12 +130,20 @@ export class ClienteGroq implements ClienteLlm {
   }
 
   private async chamar(pedido: PedidoLlm, modelo: string): Promise<RespostaLlm> {
-    const res = await fetch(this.url, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${this.opcoes.chave}` },
-      body: JSON.stringify(corpoRequisicao(pedido, modelo)),
-      signal: this.opcoes.prazoFinal !== undefined ? AbortSignal.timeout(Math.max(1000, this.opcoes.prazoFinal - Date.now())) : undefined,
-    });
+    const { prazoFinal, timeoutMs = 60_000 } = this.opcoes;
+    const limite = prazoFinal !== undefined ? Math.min(timeoutMs, Math.max(1000, prazoFinal - Date.now())) : timeoutMs;
+    let res: Response;
+    try {
+      res = await fetch(this.url, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${this.opcoes.chave}` },
+        body: JSON.stringify(corpoRequisicao(pedido, modelo)),
+        signal: AbortSignal.timeout(limite),
+      });
+    } catch (e) {
+      // Rede fora ou tempo esgotado: recuperável, tenta de novo ou passa ao próximo modelo.
+      throw new ErroLlm(`Falha de rede ao chamar o modelo: ${e instanceof Error ? e.message : String(e)}`, 503);
+    }
     const texto = await res.text();
     if (!res.ok) throw new ErroLlm(`Groq ${res.status}: ${texto.slice(0, 300)}`, res.status, tempoDeEspera(res, texto));
     let json;

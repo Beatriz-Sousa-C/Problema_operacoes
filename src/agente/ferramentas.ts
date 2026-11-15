@@ -3,7 +3,7 @@
  * contexto: o modelo de linguagem nunca inventa um número, ele consulta.
  */
 import { z } from "zod";
-import { ACOES, POLITICA, TIPOS_EXCECAO, TIPOS_QUE_EXIGEM_FOTO, type ExcecaoAnalisada } from "@/core";
+import { ACOES, POLITICA, REGIAO_POR_UF, TIPOS_EXCECAO, TIPOS_QUE_EXIGEM_FOTO, type ExcecaoAnalisada } from "@/core";
 import type { Contexto } from "./contexto";
 import type { DefinicaoFerramenta } from "./llm";
 
@@ -90,7 +90,7 @@ const executores: Record<NomeFerramentaConsulta, Executor> = {
   consultar_transportadora(ctx, args) {
     const { transportadora, uf } = esquemas.consultar_transportadora.parse(args);
     const todas = ctx.analise.excecoes;
-    const regiao = todas.find((e) => e.uf === uf)?.regiao;
+    const regiao = REGIAO_POR_UF[uf.toUpperCase()] ?? "Desconhecida";
     const naRegiao = todas.filter((e) => e.regiao === regiao);
     const dela = naRegiao.filter((e) => e.transportadora === transportadora);
     if (!dela.length) return { erro: `Sem dados de ${transportadora} em ${uf}` };

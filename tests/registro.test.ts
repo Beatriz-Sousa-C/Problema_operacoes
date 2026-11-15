@@ -88,7 +88,7 @@ describe("passos 2 e 3", () => {
     const tratativas = montarTratativas(ctx, plano, {});
     const sit = situacoes(tratativas, {});
     expect(sit.size).toBe(150);
-    const { blocos, canceladas } = mensagensProntas(ctx, tratativas, {}, plano, (g) => g.tipo);
+    const { blocos, canceladas } = mensagensProntas(ctx, tratativas, {}, plano);
     const pedidosComMensagem = new Set(blocos.flatMap((b) => b.mensagens.map((m) => m.id)));
     for (const [id, s] of sit) if (s === "enviar") expect(pedidosComMensagem.has(id)).toBe(true);
     expect(canceladas).toEqual([]);

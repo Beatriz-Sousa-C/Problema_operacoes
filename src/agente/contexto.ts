@@ -6,6 +6,7 @@ import {
   analisar,
   auditarPrazos,
   detectarCausas,
+  inferirDataReferencia,
   montarFila,
   PARAMETROS,
   type Analise,
@@ -27,7 +28,13 @@ export interface Contexto {
   causasPorPedido: Map<string, CausaSistemica[]>;
 }
 
-export function criarContexto(base: BaseDados, parametros: Parametros = PARAMETROS): Contexto {
+/** Parâmetros para uma lista: os do negócio, com "hoje" sendo a data mais recente da própria lista. */
+export const parametrosDaLista = (base: BaseDados, p: Parametros = PARAMETROS): Parametros => ({
+  ...p,
+  dataReferencia: inferirDataReferencia(base) ?? p.dataReferencia,
+});
+
+export function criarContexto(base: BaseDados, parametros: Parametros = parametrosDaLista(base)): Contexto {
   const analise = analisar(base, parametros);
   const fila = montarFila(analise.excecoes, parametros.capacidadeDiaria);
   const causas = detectarCausas(analise.excecoes, { custoContato: parametros.custoContato });

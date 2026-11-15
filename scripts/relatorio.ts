@@ -1,10 +1,9 @@
 /** Imprime os números principais da análise no terminal (útil para conferência). */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import "./env";
 import { analisar, auditarPrazos, carregarBase, detectarCausas, simular, PARAMETROS } from "../src/core";
+import { lerCsvsDoDisco } from "../src/servidor/dados";
 
-const ler = (f: string) => readFileSync(join(__dirname, "..", "public", "dados", f), "utf8");
-const base = carregarBase({ excecoes: ler("pedidos_excecao.csv"), clientes: ler("clientes.csv"), transportadoras: ler("transportadoras.csv") });
+const base = carregarBase(lerCsvsDoDisco());
 const a = analisar(base);
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 console.log("Qualidade:", { ...a.qualidade, duplicatas: a.qualidade.duplicatas.length });

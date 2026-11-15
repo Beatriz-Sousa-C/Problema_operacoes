@@ -203,6 +203,26 @@ export function acoesPadrao(e: ExcecaoAnalisada): Acao[] {
 
 // ---------- Mensagens ao cliente ----------
 
+/**
+ * Conferência da mensagem escrita pelo modelo, feita pelo código e não pelo
+ * prompt: link nenhum, nenhuma promessa que não esteja entre as ações
+ * decididas e nenhum número interno de risco. Problemas voltam ao modelo
+ * como erro de validação para ele corrigir; se insistir, cai na política.
+ */
+export function problemasDaMensagem(texto: string, acoes: readonly Acao[]): string[] {
+  const problemas: string[] = [];
+  const t = texto.toLowerCase();
+  if (/https?:\/\/|www\.|\.com\b|\.br\b/i.test(texto)) problemas.push("contém link ou endereço de site");
+  if (!acoes.includes("reembolsar") && /reembols|estorn|devolu[çc][aã]o do (valor|dinheiro)/.test(t)) {
+    problemas.push('promete reembolso sem a ação "reembolsar"');
+  }
+  if (!acoes.includes("cancelar_pedido") && /cancel/.test(t)) problemas.push('fala em cancelamento sem a ação "cancelar_pedido"');
+  if (/custo de esperar|valor em jogo|probabilidade|p-valor|perda esperada|\bvip\b|alto valor/.test(t)) {
+    problemas.push("cita números ou classificações internas de risco");
+  }
+  return problemas;
+}
+
 export interface MensagemPlanejada {
   texto: string;
   /** Status no momento do planejamento (antes de foto e aprovações) */

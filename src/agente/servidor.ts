@@ -6,25 +6,29 @@
  * chave de um grupo, e o servidor monta a conversa inteira. Assim a chave da
  * Groq não pode ser usada como chat genérico.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { carregarBase } from "@/core";
+import { lerCsvsDoDisco, lerPlanoGerado, type Csvs } from "@/servidor/dados";
 import { criarContexto, type Contexto } from "./contexto";
 import { ClienteGroq, ClienteIndisponivel, modelosDoAmbiente, type ClienteLlm } from "./llm";
 import { ClienteContado, configDoAmbiente, ipDaRequisicao, Limitador, type TipoUso } from "./limite";
 
+let csvs: Csvs | null = null;
 let contexto: Contexto | null = null;
+
+/** CSVs originais, lidos uma vez por instância (texto puro no desenvolvimento, cifrados no deploy). */
+export function csvsDoServidor(): Csvs {
+  csvs ??= lerCsvsDoDisco();
+  return csvs;
+}
 
 /** Contexto da lista original, criado uma vez por instância. */
 export function contextoDoServidor(): Contexto {
-  if (!contexto) {
-    const ler = (f: string) => readFileSync(join(process.cwd(), "public", "dados", f), "utf8");
-    contexto = criarContexto(
-      carregarBase({ excecoes: ler("pedidos_excecao.csv"), clientes: ler("clientes.csv"), transportadoras: ler("transportadoras.csv") }),
-    );
-  }
+  contexto ??= criarContexto(carregarBase(csvsDoServidor()));
   return contexto;
 }
+
+/** Plano do agente gerado no build (null se o build rodou sem gerar). */
+export const planoDoServidor = () => lerPlanoGerado();
 
 export const limitador = new Limitador(configDoAmbiente());
 

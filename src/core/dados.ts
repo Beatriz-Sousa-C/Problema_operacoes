@@ -256,6 +256,19 @@ export function removerDuplicatas(excecoes: ExcecaoBruta[]): {
   return { unicas: [...porChave.values()], duplicatas };
 }
 
+/**
+ * "Hoje" de uma lista: a data mais recente que aparece nela (abertura da
+ * exceção, pedido ou entrega). Na lista do desafio dá 2026-09-30; numa lista
+ * de outro dia, a fila passa a ser calculada a partir daquele dia.
+ */
+export function inferirDataReferencia(base: Pick<BaseDados, "excecoes">): string | null {
+  let max: string | null = null;
+  for (const e of base.excecoes) {
+    for (const d of [e.data_abertura_excecao, e.data_pedido, e.data_entrega]) if (d && (!max || d > max)) max = d;
+  }
+  return max;
+}
+
 export function carregarBase(csvs: { excecoes: string; clientes: string; transportadoras: string }): BaseDados {
   const excecoes = parseExcecoes(csvs.excecoes);
   const clientes = parseClientes(csvs.clientes);

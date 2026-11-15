@@ -3,7 +3,7 @@
  * O modelo consulta o sistema quantas vezes precisar e termina registrando
  * uma decisão estruturada, que é validada pelo código antes de valer.
  */
-import { acoesPadrao, avaliarAcoes, mensagemPedidoDeFoto, planejarMensagens, POLITICA, TIPOS_QUE_EXIGEM_FOTO, type AvaliacaoAcao, type ExcecaoAnalisada, type MensagemPlanejada } from "@/core";
+import { acoesPadrao, avaliarAcoes, mensagemPedidoDeFoto, planejarMensagens, POLITICA, problemasDaMensagem, TIPOS_QUE_EXIGEM_FOTO, type AvaliacaoAcao, type ExcecaoAnalisada, type MensagemPlanejada } from "@/core";
 import type { Contexto } from "./contexto";
 import {
   ESQUEMA_DECISAO,
@@ -35,7 +35,17 @@ export interface ResultadoInvestigacao {
   aviso?: string;
 }
 
-const MAX_PASSOS = 8;
+/** Cada passo reenvia a conversa inteira: 6 passos cabem em ~15 mil tokens e bastam para 4 consultas + decisão. */
+const MAX_PASSOS = 6;
+
+/** Erros de validação da decisão: formato (zod) e conteúdo da mensagem (política). */
+export function validarDecisao(bruto: unknown): { ok: true; decisao: DecisaoAgente } | { ok: false; erro: string } {
+  const v = ESQUEMA_DECISAO.safeParse(bruto);
+  if (!v.success) return { ok: false, erro: v.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
+  const problemas = problemasDaMensagem(v.data.mensagem_cliente, v.data.acoes);
+  if (problemas.length) return { ok: false, erro: `mensagem_cliente: ${problemas.join("; ")}` };
+  return { ok: true, decisao: v.data };
+}
 
 /** Decisão por regras: a rede de segurança quando a IA está indisponível. */
 export function decisaoPorRegras(e: ExcecaoAnalisada): DecisaoAgente {
@@ -104,15 +114,14 @@ export async function investigarExcecao(ctx: Contexto, llm: ClienteLlm, id: stri
               return null;
             }
           })();
-          const validado = ESQUEMA_DECISAO.safeParse(bruto);
-          if (validado.success) {
-            trilha.push({ ferramenta: c.function.name, argumentos: validado.data, resultado: "decisão registrada" });
-            return { id, fonte: "agente", decisao: validado.data, ...avaliar(validado.data, e), trilha, modelo, tokens };
+          const validado = validarDecisao(bruto);
+          if (validado.ok) {
+            trilha.push({ ferramenta: c.function.name, argumentos: validado.decisao, resultado: "decisão registrada" });
+            return { id, fonte: "agente", decisao: validado.decisao, ...avaliar(validado.decisao, e), trilha, modelo, tokens };
           }
           // Autocorreção: devolve o erro de validação para o modelo tentar de novo.
-          const erro = validado.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-          trilha.push({ ferramenta: c.function.name, argumentos: bruto, resultado: { erro } });
-          mensagens.push({ role: "tool", tool_call_id: c.id, content: JSON.stringify({ erro: `Decisão inválida: ${erro}. Corrija e chame de novo.` }) });
+          trilha.push({ ferramenta: c.function.name, argumentos: bruto, resultado: { erro: validado.erro } });
+          mensagens.push({ role: "tool", tool_call_id: c.id, content: JSON.stringify({ erro: `Decisão inválida: ${validado.erro}. Corrija e chame de novo.` }) });
           continue;
         }
         const resultado = executarFerramenta(ctx, c.function.name, c.function.arguments);

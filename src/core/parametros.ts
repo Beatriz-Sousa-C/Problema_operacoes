@@ -17,6 +17,8 @@ export interface Parametros {
   /** Data de referência ("hoje") dos dados, ISO yyyy-mm-dd */
   dataReferencia: string;
   feriados: string[];
+  /** Dias que a lista cobre (o enunciado diz "abertos nos últimos 60 dias"): base das projeções mensais */
+  janelaDias: number;
   capacidadeDiaria: number;
   minutosPorTratativa: number;
   /** Custo da mercadoria como fração do valor do pedido */
@@ -40,6 +42,7 @@ export const PARAMETROS: Parametros = {
   dataReferencia: "2026-09-30",
   // Feriados nacionais de 2025 a 2027: listas de outros períodos também contam dias úteis certo.
   feriados: [2025, 2026, 2027].flatMap(feriadosNacionais),
+  janelaDias: 60,
   capacidadeDiaria: 150,
   minutosPorTratativa: 12,
   cmv: 0.24,

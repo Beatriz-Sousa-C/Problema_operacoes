@@ -8,11 +8,11 @@
  * Isso cabe na cota gratuita do modelo: ~20 chamadas por dia em vez de 150.
  */
 import { z } from "zod";
-import { ACOES, acoesPadrao, POLITICA, TIPOS_QUE_EXIGEM_FOTO, type AvaliacaoAcao, type CausaSistemica, type ExcecaoAnalisada, type MensagemPlanejada } from "@/core";
+import { ACOES, acoesPadrao, POLITICA, problemasDaMensagem, projetarPorMes, simular, TIPOS_QUE_EXIGEM_FOTO, type AvaliacaoAcao, type CausaSistemica, type ExcecaoAnalisada, type MensagemPlanejada, type TipoExcecao } from "@/core";
 import { filaDoDia, type Contexto } from "./contexto";
-import type { ClienteLlm, DefinicaoFerramenta } from "./llm";
+import type { ClienteLlm, DefinicaoFerramenta, Mensagem } from "./llm";
 import { avaliar, investigarExcecao, type ResultadoInvestigacao } from "./investigador";
-import { PROMPT_PLANO_CORRECAO, PROMPT_PLANO_GRUPO } from "./prompts";
+import { PROMPT_BRIEFING, PROMPT_PLANO_CORRECAO, PROMPT_PLANO_GRUPO } from "./prompts";
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const num1 = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
@@ -117,8 +117,12 @@ export function planoGrupoPorRegras(g: Grupo): PlanoGrupo {
       : TIPOS_QUE_EXIGEM_FOTO.has(g.tipo)
         ? "Obrigado pela foto! Já demos andamento à solução do seu pedido {pedido} ({produto}) e avisamos assim que estiver a caminho."
         : "Olá! Identificamos um problema com o seu pedido {pedido} ({produto}) e já estamos resolvendo. Em breve enviamos a atualização.",
+    // Causa numa transportadora: o chamado vai para ela (entra na aba dela na exportação); senão, para a área da dimensão.
     chamado_lote: g.causa
-      ? { destino: g.causa.dimensao, texto: `Lote de ${g.membros.length} pedidos com ${g.tipo} ligados a ${g.causa.grupo}. Favor investigar a causa.` }
+      ? {
+          destino: g.causa.dimensao.startsWith("Transportadora") ? g.membros[0].transportadora : g.causa.dimensao,
+          texto: `Lote de ${g.membros.length} pedidos com ${regra.descricao.toLowerCase()} ligados a ${g.causa.grupo}. Favor investigar a causa e responder com o plano de ação.`,
+        }
       : null,
   };
 }
@@ -133,7 +137,7 @@ export interface TratativaPedido {
 
 export interface ResultadoGrupo {
   chave: string;
-  tipo: string;
+  tipo: TipoExcecao;
   causa: string | null;
   pedidos: number;
   fonte: "agente" | "regras";
@@ -172,23 +176,48 @@ export interface DecisaoGrupo {
   aviso?: string;
 }
 
+/** Formato (zod) e conteúdo da mensagem (política): o que o código exige do plano do grupo. */
+export function validarPlanoGrupo(bruto: unknown): { ok: true; plano: PlanoGrupo } | { ok: false; erro: string } {
+  const v = ESQUEMA_PLANO_GRUPO.safeParse(bruto);
+  if (!v.success) return { ok: false, erro: v.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
+  const problemas = problemasDaMensagem(v.data.modelo_mensagem_cliente, v.data.acoes);
+  if (problemas.length) return { ok: false, erro: `modelo_mensagem_cliente: ${problemas.join("; ")}` };
+  return { ok: true, plano: v.data };
+}
+
+/** Uma chamada por grupo; se a resposta violar o formato ou a política da mensagem, o erro volta uma vez para o modelo corrigir. */
 export async function decidirGrupo(llm: ClienteLlm | null, g: Grupo): Promise<DecisaoGrupo> {
   if (!llm) return { plano: planoGrupoPorRegras(g), fonte: "regras", tokens: 0, aviso: "IA não configurada" };
+  const mensagens: Mensagem[] = [
+    { role: "system", content: PROMPT_PLANO_GRUPO },
+    { role: "user", content: JSON.stringify(resumoGrupo(g)) },
+  ];
+  let tokens = 0;
+  let modelo: string | undefined;
   try {
-    const r = await llm.completar({
-      messages: [
-        { role: "system", content: PROMPT_PLANO_GRUPO },
-        { role: "user", content: JSON.stringify(resumoGrupo(g)) },
-      ],
-      tools: [FERRAMENTA_PLANO_GRUPO],
-      toolChoice: { nome: "registrar_plano_grupo" },
-    });
-    const chamada = r.mensagem.tool_calls?.[0];
-    const validado = ESQUEMA_PLANO_GRUPO.safeParse(chamada ? JSON.parse(chamada.function.arguments) : null);
-    if (!validado.success) throw new Error("plano do grupo fora do formato");
-    return { plano: validado.data, fonte: "agente", modelo: r.modelo, tokens: r.tokens };
+    for (let tentativa = 1; tentativa <= 2; tentativa++) {
+      const r = await llm.completar({ messages: mensagens, tools: [FERRAMENTA_PLANO_GRUPO], toolChoice: { nome: "registrar_plano_grupo" } });
+      tokens += r.tokens;
+      modelo = r.modelo;
+      const chamada = r.mensagem.tool_calls?.[0];
+      let bruto: unknown = null;
+      try {
+        bruto = chamada ? JSON.parse(chamada.function.arguments) : null;
+      } catch {
+        /* fica null e falha na validação */
+      }
+      const v = validarPlanoGrupo(bruto);
+      if (v.ok) return { plano: v.plano, fonte: "agente", modelo, tokens };
+      if (tentativa === 2) throw new Error(`plano do grupo inválido: ${v.erro}`);
+      mensagens.push(r.mensagem, {
+        role: "tool",
+        tool_call_id: chamada?.id ?? "plano",
+        content: JSON.stringify({ erro: `Plano inválido: ${v.erro}. Corrija e chame registrar_plano_grupo de novo.` }),
+      });
+    }
+    throw new Error("plano do grupo não concluído");
   } catch (e) {
-    return { plano: planoGrupoPorRegras(g), fonte: "regras", tokens: 0, aviso: e instanceof Error ? e.message.slice(0, 160) : "erro" };
+    return { plano: planoGrupoPorRegras(g), fonte: "regras", tokens, modelo, aviso: e instanceof Error ? e.message.slice(0, 160) : "erro" };
   }
 }
 
@@ -452,4 +481,167 @@ export async function gerarPlanosCorrecao(ctx: Contexto, llm: ClienteLlm | null)
     saida.push(plano ?? planoCorrecaoPorRegras(c, ctx));
   }
   return saida;
+}
+
+// ---------- Briefing do dia para a liderança ----------
+
+const ESQUEMA_BRIEFING = z.object({
+  titulo: z.string().min(5).max(140),
+  paragrafos: z.array(z.string().min(20).max(800)).min(2).max(4),
+  prioridades: z.array(z.string().min(5).max(260)).min(3).max(5),
+});
+export type Briefing = z.infer<typeof ESQUEMA_BRIEFING> & { fonte: "agente" | "regras"; modelo?: string; geradoEm: string };
+
+const FERRAMENTA_BRIEFING: DefinicaoFerramenta = {
+  type: "function",
+  function: {
+    name: "registrar_briefing",
+    description: "Registra o briefing do dia.",
+    parameters: {
+      type: "object",
+      properties: {
+        titulo: { type: "string", description: "Uma linha com o número mais importante do dia" },
+        paragrafos: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 },
+        prioridades: { type: "array", items: { type: "string" }, minItems: 3, maxItems: 5, description: "Em ordem, com o número que justifica e a área responsável" },
+      },
+      required: ["titulo", "paragrafos", "prioridades"],
+    },
+  },
+};
+
+const brlCurto = (v: number) => `R$ ${Math.round(v).toLocaleString("pt-BR")}`;
+
+/** Os números do dia que o briefing pode citar (e nada além deles). */
+export function dadosDoBriefing(ctx: Contexto, plano: PlanoDoDia) {
+  const { analise, causas, auditoria } = ctx;
+  const p = analise.parametros;
+  const sim = simular(analise);
+  const atual = sim.estrategias.find((s) => s.estrategia === "ordem_de_chegada")!;
+  const solucao = sim.estrategias.find((s) => s.estrategia === "custo_de_esperar")!;
+  const hoje = filaDoDia(ctx).map((i) => i.excecao);
+  const porTipo: Record<string, number> = {};
+  for (const e of hoje) porTipo[POLITICA[e.tipo_excecao].descricao] = (porTipo[POLITICA[e.tipo_excecao].descricao] ?? 0) + 1;
+  return {
+    data_de_referencia: p.dataReferencia,
+    fila: {
+      excecoes_abertas: analise.excecoes.length,
+      capacidade_por_dia: p.capacidadeDiaria,
+      dias_uteis_para_zerar: analise.horizonteDias,
+      pedidos_de_hoje: hoje.length,
+      pedidos_de_hoje_por_tipo: porTipo,
+      clientes_alto_valor_hoje: hoje.filter((e) => e.clienteVip).length,
+      valor_em_jogo_hoje: r2(hoje.reduce((s, e) => s + e.valorEmJogo, 0)),
+      perda_evitada_por_tratar_hoje: r2(hoje.reduce((s, e) => s + e.custoDeEsperar, 0)),
+    },
+    perdas_esperadas_ate_zerar_a_fila: {
+      ordem_de_chegada_processo_atual: r2(atual.perdaEsperada),
+      custo_de_esperar_solucao: r2(solucao.perdaEsperada),
+      recuperado_pela_solucao: r2(sim.recuperadoVsAtual),
+      cancelamentos_a_menos: Math.round(atual.cancelamentosEsperados - solucao.cancelamentosEsperados),
+      ja_comprometido_pelo_atraso_atual: r2(sim.perdaInevitavel),
+      fracao_do_recuperavel_capturada: r2(sim.eficiencia),
+    },
+    depende_da_lideranca: {
+      acoes_com_dinheiro_aguardando_aprovacao: plano.resumo.aguardandoAprovacao,
+      custo_das_acoes_em_aprovacao: plano.resumo.custoEmAprovacao,
+      pedidos_aguardando_foto_do_cliente: plano.resumo.aguardandoFoto,
+      mensagens_que_saem_automaticamente: plano.resumo.mensagensAgora,
+      chamados_em_lote_abertos: plano.grupos.filter((g) => g.plano.chamado_lote).length,
+    },
+    causas_de_processo: causas.slice(0, 6).map((c) => {
+      const mes = projetarPorMes(c, p.janelaDias);
+      return {
+        onde: `${c.dimensao}: ${c.grupo}`,
+        tipo: POLITICA[c.tipo].descricao,
+        excecoes_observadas: c.observado,
+        vezes_acima_do_normal: r2(c.lift),
+        excecoes_evitadas_por_mes_se_corrigida: Math.round(mes.excecoes),
+        economia_por_mes_se_corrigida: r2(mes.custo),
+      };
+    }),
+    data_prometida: auditoria.regraObservada
+      ? {
+          problema: "o checkout calcula a data prometida em dias corridos; a regra é dias úteis",
+          atrasos_que_estao_dentro_do_prazo_contratado: auditoria.atrasosDentroDoContrato,
+          atrasos_total: auditoria.atrasosTotal,
+          dias_uteis_prometidos_a_menos_em_media: r2(auditoria.diasPrometidosAMenosMedio),
+        }
+      : null,
+  };
+}
+
+/** Briefing por regras: os mesmos números, em frases fixas. Rede de segurança e versão para listas enviadas. */
+export function briefingPorRegras(ctx: Contexto, plano: PlanoDoDia, geradoEm = new Date().toISOString()): Briefing {
+  const d = dadosDoBriefing(ctx, plano);
+  const perdas = d.perdas_esperadas_ate_zerar_a_fila;
+  const causas = d.causas_de_processo;
+  const prioridades: string[] = [
+    `Aprovar as ${d.depende_da_lideranca.acoes_com_dinheiro_aguardando_aprovacao} ações com dinheiro da fila de hoje (${brlCurto(d.depende_da_lideranca.custo_das_acoes_em_aprovacao)}): elas protegem ${brlCurto(d.fila.valor_em_jogo_hoje)} em jogo. Operações.`,
+  ];
+  if (d.data_prometida) {
+    prioridades.push(
+      `Corrigir o cálculo da data prometida no checkout: ${d.data_prometida.atrasos_que_estao_dentro_do_prazo_contratado} dos ${d.data_prometida.atrasos_total} atrasos estão dentro do prazo contratado. Tecnologia.`,
+    );
+  }
+  for (const c of causas.slice(0, 3)) {
+    prioridades.push(
+      `Atacar ${c.onde} (${c.tipo}, ${c.vezes_acima_do_normal} vezes acima do normal): corrigir evita cerca de ${c.excecoes_evitadas_por_mes_se_corrigida} exceções e ${brlCurto(c.economia_por_mes_se_corrigida)} por mês.`,
+    );
+  }
+  return {
+    fonte: "regras",
+    geradoEm,
+    titulo: `Mudar a ordem da fila evita ${brlCurto(perdas.recuperado_pela_solucao)} em perdas nos próximos ${d.fila.dias_uteis_para_zerar} dias úteis`,
+    paragrafos: [
+      `A fila tem ${d.fila.excecoes_abertas} exceções abertas e leva ${d.fila.dias_uteis_para_zerar} dias úteis para zerar com ${d.fila.capacidade_por_dia} tratativas por dia. Hoje entram ${d.fila.pedidos_de_hoje} pedidos, com ${brlCurto(d.fila.valor_em_jogo_hoje)} em jogo; tratá-los hoje em vez de deixá-los para o fim evita ${brlCurto(d.fila.perda_evitada_por_tratar_hoje)} de perda adicional.`,
+      `Pela ordem de chegada, a perda esperada até zerar é de ${brlCurto(perdas.ordem_de_chegada_processo_atual)}; pelo custo de esperar, ${brlCurto(perdas.custo_de_esperar_solucao)}. São ${brlCurto(perdas.recuperado_pela_solucao)} recuperados e ${perdas.cancelamentos_a_menos} cancelamentos a menos, sem contratar ninguém. ${brlCurto(perdas.ja_comprometido_pelo_atraso_atual)} já estão comprometidos pelo atraso acumulado e nenhuma ordem recupera.`,
+      `Dependem da liderança: ${d.depende_da_lideranca.acoes_com_dinheiro_aguardando_aprovacao} ações com dinheiro (${brlCurto(d.depende_da_lideranca.custo_das_acoes_em_aprovacao)}) e ${d.depende_da_lideranca.pedidos_aguardando_foto_do_cliente} pedidos esperam a foto do cliente. ${d.depende_da_lideranca.mensagens_que_saem_automaticamente} mensagens saem automaticamente e ${d.depende_da_lideranca.chamados_em_lote_abertos} chamados em lote já foram abertos.`,
+      causas.length
+        ? `As exceções nascem em ${causas.length} causas de processo confirmadas. As maiores: ${causas
+            .slice(0, 3)
+            .map((c) => `${c.onde} (${c.tipo}, ${c.vezes_acima_do_normal} vezes acima do normal, ${brlCurto(c.economia_por_mes_se_corrigida)} por mês)`)
+            .join("; ")}.`
+        : "Nenhuma causa de processo passou no teste estatístico nesta lista.",
+    ],
+    prioridades: prioridades.slice(0, 5),
+  };
+}
+
+const temLink = (t: string) => /https?:\/\/|www\./i.test(t);
+
+/** Uma chamada ao modelo (mais uma de correção, se precisar); se falhar, o briefing por regras. */
+export async function gerarBriefing(ctx: Contexto, llm: ClienteLlm | null, plano: PlanoDoDia): Promise<Briefing> {
+  if (!llm) return briefingPorRegras(ctx, plano);
+  const mensagens: Mensagem[] = [
+    { role: "system", content: PROMPT_BRIEFING },
+    { role: "user", content: JSON.stringify(dadosDoBriefing(ctx, plano)) },
+  ];
+  try {
+    for (let tentativa = 1; tentativa <= 2; tentativa++) {
+      const r = await llm.completar({ messages: mensagens, tools: [FERRAMENTA_BRIEFING], toolChoice: { nome: "registrar_briefing" }, maxTokens: 1500 });
+      const chamada = r.mensagem.tool_calls?.[0];
+      let bruto: unknown = null;
+      try {
+        bruto = chamada ? JSON.parse(chamada.function.arguments) : null;
+      } catch {
+        /* fica null */
+      }
+      const v = ESQUEMA_BRIEFING.safeParse(bruto);
+      const erro = !v.success
+        ? v.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")
+        : [v.data.titulo, ...v.data.paragrafos, ...v.data.prioridades].some(temLink)
+          ? "não inclua links"
+          : null;
+      if (!erro && v.success) return { ...v.data, fonte: "agente", modelo: r.modelo, geradoEm: new Date().toISOString() };
+      if (tentativa === 2) break;
+      mensagens.push(r.mensagem, {
+        role: "tool",
+        tool_call_id: chamada?.id ?? "briefing",
+        content: JSON.stringify({ erro: `Briefing inválido: ${erro}. Corrija e chame registrar_briefing de novo.` }),
+      });
+    }
+  } catch {
+    /* cai nas regras */
+  }
+  return briefingPorRegras(ctx, plano);
 }

@@ -177,6 +177,12 @@ export function detectarCausas(excecoes: readonly ExcecaoAnalisada[], opcoes: Op
   return resultado.sort((a, b) => b.excesso - a.excesso);
 }
 
+/** Ganho mensal estimado de corrigir a causa: o excesso observado na janela, levado a 30 dias. */
+export function projetarPorMes(c: Pick<CausaSistemica, "excesso" | "custoDoExcesso">, janelaDias: number): { excecoes: number; custo: number } {
+  const fator = 30 / Math.max(1, janelaDias);
+  return { excecoes: Math.max(0, c.excesso) * fator, custo: c.custoDoExcesso * fator };
+}
+
 /** Auditoria da data prometida: o sistema usa a regra de dias úteis? */
 export interface AuditoriaPrazo {
   pedidos: number;

@@ -8,7 +8,7 @@
  * Isso cabe na cota gratuita do modelo: ~20 chamadas por dia em vez de 150.
  */
 import { z } from "zod";
-import { ACOES, acoesPadrao, POLITICA, problemasDaMensagem, projetarPorMes, simular, TIPOS_QUE_EXIGEM_FOTO, type AvaliacaoAcao, type CausaSistemica, type ExcecaoAnalisada, type MensagemPlanejada, type TipoExcecao } from "@/core";
+import { ACOES, acoesPadrao, MENSAGEM_ENTREGUE_COM_ATRASO, MENSAGEM_PADRAO, POLITICA, preencherMensagem, problemasDaMensagem, projetarPorMes, simular, type AvaliacaoAcao, type CausaSistemica, type ExcecaoAnalisada, type MensagemPlanejada, type TipoExcecao } from "@/core";
 import { filaDoDia, type Contexto } from "./contexto";
 import type { ClienteLlm, DefinicaoFerramenta, Mensagem } from "./llm";
 import { avaliar, investigarExcecao, type ResultadoInvestigacao } from "./investigador";
@@ -113,11 +113,7 @@ export function planoGrupoPorRegras(g: Grupo): PlanoGrupo {
   return {
     acoes: acoesPadrao(g.membros[0]),
     justificativa: `Tratativa padrão da política: ${regra.orientacao}`,
-    modelo_mensagem_cliente: g.perdaTravada
-      ? "Olá! Seu pedido {pedido} foi entregue depois do prazo que informamos. Pedimos desculpas pelo transtorno."
-      : TIPOS_QUE_EXIGEM_FOTO.has(g.tipo)
-        ? "Obrigado pela foto! Já demos andamento à solução do seu pedido {pedido} ({produto}) e avisamos assim que estiver a caminho."
-        : "Olá! Identificamos um problema com o seu pedido {pedido} ({produto}) e já estamos resolvendo. Em breve enviamos a atualização.",
+    modelo_mensagem_cliente: g.perdaTravada ? MENSAGEM_ENTREGUE_COM_ATRASO : MENSAGEM_PADRAO[g.tipo],
     // Causa numa transportadora: o chamado vai para ela (entra na aba dela na exportação); senão, para a área da dimensão.
     chamado_lote: g.causa
       ? {
@@ -166,8 +162,7 @@ export interface PlanoDoDia {
   };
 }
 
-const preencher = (modelo: string, e: ExcecaoAnalisada) =>
-  modelo.replaceAll("{pedido}", e.order_id).replaceAll("{produto}", e.descricao_produto);
+const preencher = preencherMensagem;
 
 export interface DecisaoGrupo {
   plano: PlanoGrupo;

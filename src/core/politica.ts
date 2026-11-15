@@ -225,15 +225,52 @@ export function problemasDaMensagem(texto: string, acoes: readonly Acao[], conte
     problemas.push('promete reembolso sem a ação "reembolsar"');
   }
   if (!acoes.includes("cancelar_pedido") && /cancel/.test(t)) problemas.push('fala em cancelamento sem a ação "cancelar_pedido"');
-  // O sistema não sabe quando o reenvio chega: nenhuma mensagem promete prazo em dias.
-  if (/\b(em até|dentro de|no prazo de|em no máximo|em)\s+\d+\s+dias\b/.test(t)) {
-    problemas.push("promete um prazo em dias que o sistema não informou");
+  // Tom: dizer que há atraso basta. Contar dias (de atraso ou de prazo) estressa o cliente,
+  // e o sistema não sabe quando o reenvio chega.
+  if (/\b\d+([,.]\d+)?\s*(dias?|semanas?)\b/.test(t)) {
+    problemas.push("cita prazo ou atraso em número de dias; para o cliente basta dizer que há atraso e o que já estamos fazendo");
   }
+  if (/\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/.test(t)) {
+    problemas.push("cita uma data; não lembre o cliente da data prometida nem prometa outra");
+  }
+  if (/contrat|\bsla\b|sinistro|indeniza|processos? intern|chamado|causa sist|regi[aã]o (norte|nordeste|sul|sudeste|centro)|enfrentando problemas/.test(t)) {
+    problemas.push("expõe detalhes internos da operação (contrato, sinistro, indenização, problemas da transportadora ou da região)");
+  }
+  if (/atenciosamente|equipe gocase|gobeaut/.test(t)) {
+    problemas.push("tem assinatura; o canal já identifica a marca, então não assine");
+  }
+  if (texto.length > 450) problemas.push(`longa demais (${texto.length} caracteres); use 2 ou 3 frases curtas`);
   if (/custo de esperar|valor em jogo|probabilidade|p-valor|perda esperada|\bvip\b|alto valor/.test(t)) {
     problemas.push("cita números ou classificações internas de risco");
   }
   return problemas;
 }
+
+/**
+ * Mensagem padrão por tipo, curta e calma: o que aconteceu, em termos simples,
+ * e o que já estamos fazendo. Vale quando a IA está fora do ar ou insiste em
+ * uma mensagem que a conferência recusa. Nos tipos com foto, é a mensagem que
+ * sai depois que a foto chega. Marcadores: {pedido} e {produto}.
+ */
+export const MENSAGEM_PADRAO: Record<TipoExcecao, string> = {
+  atraso_entrega: "Olá! Seu pedido {pedido} ({produto}) está com um pequeno atraso na entrega. Já acionamos a transportadora e avisamos você assim que houver novidade. Obrigado pela paciência!",
+  rastreio_parado: "Olá! O rastreio do seu pedido {pedido} ({produto}) está sem atualização. Já pedimos uma verificação à transportadora e avisamos você assim que tivermos notícia.",
+  extravio: "Olá! Seu pedido {pedido} ({produto}) não chegou como deveria, então vamos enviar outro sem custo para você. Avisamos assim que estiver a caminho.",
+  devolvido_transportadora: "Olá! Seu pedido {pedido} ({produto}) voltou para a nossa central. Você pode confirmar o endereço de entrega? Assim que confirmar, enviamos de novo sem custo.",
+  avaria_transporte: "Obrigado pela foto! Vamos enviar um novo {produto} do seu pedido {pedido} sem custo, e avisamos assim que estiver a caminho.",
+  vazamento_produto: "Obrigado pela foto! Vamos enviar um novo {produto} do seu pedido {pedido} sem custo, e avisamos assim que estiver a caminho.",
+  item_faltante: "Olá! Sentimos muito: faltou um item no seu pedido {pedido}. Vamos enviá-lo sem custo e avisamos assim que estiver a caminho.",
+  falha_personalizacao: "Obrigado pela foto! Vamos produzir de novo o seu {produto} (pedido {pedido}) sem custo, e avisamos assim que estiver a caminho.",
+  pagamento_pendente: "Olá! Ainda não recebemos a confirmação do pagamento do pedido {pedido} ({produto}). Se precisar de ajuda para concluir, é só responder esta mensagem. Se já pagou, pode desconsiderar.",
+  ruptura_pos_venda: "Olá! O {produto} do seu pedido {pedido} ficou sem estoque. Podemos enviar um produto equivalente no lugar; se preferir outra solução, é só responder esta mensagem.",
+  endereco_divergente: "Olá! Precisamos confirmar o endereço de entrega do pedido {pedido} ({produto}). Você pode responder com o endereço completo? Assim garantimos que ele chegue certinho.",
+};
+
+/** Pedido já entregue com atraso: só um pedido de desculpas. */
+export const MENSAGEM_ENTREGUE_COM_ATRASO = "Olá! Seu pedido {pedido} chegou depois do prazo que informamos. Pedimos desculpas e seguimos à disposição.";
+
+export const preencherMensagem = (modelo: string, e: Pick<ExcecaoAnalisada, "order_id" | "descricao_produto">) =>
+  modelo.replaceAll("{pedido}", e.order_id).replaceAll("{produto}", e.descricao_produto);
 
 export interface MensagemPlanejada {
   texto: string;
@@ -248,7 +285,7 @@ export interface MensagemPlanejada {
 
 export function mensagemPedidoDeFoto(e: ExcecaoAnalisada): string {
   const oQue = e.tipo_excecao === "falha_personalizacao" ? "da personalização" : "do produto como ele chegou";
-  return `Olá! Sentimos muito pelo problema com o seu pedido ${e.order_id} (${e.descricao_produto}). Para resolvermos o quanto antes, você pode nos enviar uma foto ${oQue}? Assim que recebermos, damos sequência à solução.`;
+  return `Olá! Sentimos muito pelo problema com o seu pedido ${e.order_id} (${e.descricao_produto}). Você pode nos enviar uma foto ${oQue}? Assim que recebermos, resolvemos para você.`;
 }
 
 const listaRotulos = (acoes: readonly Acao[]) => acoes.map((a) => `"${ROTULO_ACAO[a].toLowerCase()}"`).join(" e ");

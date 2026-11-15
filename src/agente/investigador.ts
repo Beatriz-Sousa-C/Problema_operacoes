@@ -3,7 +3,20 @@
  * O modelo consulta o sistema quantas vezes precisar e termina registrando
  * uma decisão estruturada, que é validada pelo código antes de valer.
  */
-import { acoesPadrao, avaliarAcoes, mensagemPedidoDeFoto, planejarMensagens, POLITICA, problemasDaMensagem, TIPOS_QUE_EXIGEM_FOTO, type AvaliacaoAcao, type ExcecaoAnalisada, type MensagemPlanejada } from "@/core";
+import {
+  acoesPadrao,
+  avaliarAcoes,
+  MENSAGEM_ENTREGUE_COM_ATRASO,
+  MENSAGEM_PADRAO,
+  mensagemPedidoDeFoto,
+  planejarMensagens,
+  POLITICA,
+  preencherMensagem,
+  problemasDaMensagem,
+  type AvaliacaoAcao,
+  type ExcecaoAnalisada,
+  type MensagemPlanejada,
+} from "@/core";
 import type { Contexto } from "./contexto";
 import {
   ESQUEMA_DECISAO,
@@ -53,11 +66,7 @@ export function decisaoPorRegras(e: ExcecaoAnalisada): DecisaoAgente {
   return {
     acoes: acoesPadrao(e),
     justificativa: `Tratativa padrão da política para ${regra.descricao.toLowerCase()}. ${regra.orientacao}`,
-    mensagem_cliente: e.perdaTravada
-      ? `Olá! Seu pedido ${e.order_id} foi entregue depois do prazo que informamos. Pedimos desculpas pelo transtorno e seguimos à disposição.`
-      : TIPOS_QUE_EXIGEM_FOTO.has(e.tipo_excecao)
-        ? `Obrigado pela foto! Já demos andamento à solução do seu pedido ${e.order_id} (${e.descricao_produto}) e avisamos assim que estiver a caminho.`
-        : `Olá! Identificamos um problema com o seu pedido ${e.order_id} (${e.descricao_produto}) e já estamos resolvendo. Em breve enviamos a atualização.`,
+    mensagem_cliente: preencherMensagem(e.perdaTravada ? MENSAGEM_ENTREGUE_COM_ATRASO : MENSAGEM_PADRAO[e.tipo_excecao], e),
     chamado: null,
     confianca: "media",
   };

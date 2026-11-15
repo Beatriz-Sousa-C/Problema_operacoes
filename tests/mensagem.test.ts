@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { problemasDaMensagem } from "@/core";
+import { MENSAGEM_ENTREGUE_COM_ATRASO, MENSAGEM_PADRAO, POLITICA, problemasDaMensagem } from "@/core";
 import { validarDecisao } from "@/agente/investigador";
 import { validarPlanoGrupo } from "@/agente/planoDoDia";
 
@@ -27,10 +27,28 @@ describe("conferência da mensagem ao cliente (pelo código, não pelo prompt)",
     expect(problemasDaMensagem("Olá! Seu pedido {pedido} atrasou.", ["contatar_cliente"])).toEqual([]);
   });
 
-  it("não promete prazo em dias que o sistema não informou", () => {
+  it("não conta dias de atraso nem promete prazo, e não cita datas", () => {
     expect(problemasDaMensagem("Vamos reenviar sem custo em até 7 dias úteis.", ["reenviar"])[0]).toMatch(/prazo/);
     expect(problemasDaMensagem("Reenviamos dentro de 5 dias.", ["reenviar"])[0]).toMatch(/prazo/);
-    expect(problemasDaMensagem("Seu pedido está com 3 dias de atraso; avisaremos quando estiver a caminho.", ["contatar_cliente"])).toEqual([]);
+    expect(problemasDaMensagem("Seu pedido está com atraso de aproximadamente 2,5 dias úteis.", ["contatar_cliente"])[0]).toMatch(/atraso/);
+    expect(problemasDaMensagem("Seu pedido estava previsto para 17/09/2026.", ["contatar_cliente"])[0]).toMatch(/data/);
+    expect(problemasDaMensagem("Olá! Seu pedido está com um pequeno atraso. Já acionamos a transportadora.", ["contatar_cliente"])).toEqual([]);
+  });
+
+  it("não expõe a operação, não assina e não se alonga", () => {
+    const interno = /detalhes internos/;
+    expect(problemasDaMensagem("O atraso em relação ao prazo contratado com a transportadora é pequeno.", ["contatar_cliente"])[0]).toMatch(interno);
+    expect(problemasDaMensagem("Também abrimos um sinistro junto à transportadora.", ["reenviar"])[0]).toMatch(interno);
+    expect(problemasDaMensagem("A transportadora está enfrentando problemas na região Nordeste.", ["contatar_cliente"])[0]).toMatch(interno);
+    expect(problemasDaMensagem("Obrigado!\n\nAtenciosamente,\nEquipe Gocase/GoBeauté", ["contatar_cliente"])[0]).toMatch(/assinatura/);
+    expect(problemasDaMensagem("Olá! " + "Estamos cuidando do seu pedido. ".repeat(20), ["contatar_cliente"])[0]).toMatch(/longa demais/);
+  });
+
+  it("as mensagens padrão de todos os tipos passam na própria conferência", () => {
+    for (const tipo of Object.keys(MENSAGEM_PADRAO) as (keyof typeof MENSAGEM_PADRAO)[]) {
+      expect({ tipo, problemas: problemasDaMensagem(MENSAGEM_PADRAO[tipo], POLITICA[tipo].padrao, { tipo }) }).toEqual({ tipo, problemas: [] });
+    }
+    expect(problemasDaMensagem(MENSAGEM_ENTREGUE_COM_ATRASO, ["contatar_cliente"])).toEqual([]);
   });
 
   it("a decisão do investigador falha na validação quando a mensagem viola a política", () => {

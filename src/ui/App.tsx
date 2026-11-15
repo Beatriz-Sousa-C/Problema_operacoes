@@ -10,6 +10,7 @@ import { Hoje } from "./Hoje";
 import { Metodo } from "./Metodo";
 import { Resumo } from "./Resumo";
 import { Simulador } from "./Simulador";
+import { marcarTourVisto, Tour, tourJaVisto } from "./Tour";
 import { Aviso, Carregando, Icone, type NomeIcone } from "./componentes";
 import {
   carregarPadrao,
@@ -46,7 +47,13 @@ export function App() {
   const [erro, setErro] = useState<string | null>(null);
   const [aba, setAba] = useState("resumo");
   const [planoAoVivo, setPlanoAoVivo] = useState<PlanoDoDia | null>(null);
+  const [tourAberto, setTourAberto] = useState(false);
   const arquivoRef = useRef<HTMLInputElement>(null);
+
+  const fecharTour = useCallback(() => {
+    setTourAberto(false);
+    marcarTourVisto();
+  }, []);
 
   useEffect(() => {
     carregarPadrao()
@@ -84,6 +91,11 @@ export function App() {
   const dia = useDia(ctx, plano, registro);
   const atividade = useMemo(() => (ctx && dia ? atividadeDoAgente(ctx, plano, dia.tratativas) : null), [ctx, plano, dia]);
   const placar = useMemo(() => (ctx && dia ? placarDoAgente(ctx, dia, registro, plano) : null), [ctx, dia, registro, plano]);
+
+  // Tour da primeira visita: só depois de a tela estar pronta, e só uma vez por navegador.
+  useEffect(() => {
+    if (ctx && dia && atividade && !tourJaVisto()) setTourAberto(true);
+  }, [ctx, dia, atividade]);
 
   // Ontem × hoje: a lista original contra a lista em uso (enviada ou simulada).
   const ctxOriginal = useMemo(() => {
@@ -174,6 +186,11 @@ export function App() {
           ))}
         </nav>
         <div className="lateral__rodape">
+          {atividade && (
+            <button className="botao-texto" style={{ color: "#fff", justifySelf: "start" }} onClick={() => setTourAberto(true)}>
+              Como avaliar em 3 minutos
+            </button>
+          )}
           <PainelAgente atividade={atividade} plano={plano} />
           <section className="painel-lateral" aria-label="Dados carregados">
             <h4>Dados</h4>
@@ -215,9 +232,14 @@ export function App() {
                 <span className={`ponto ${atividade?.ligado ? "ponto--ligado" : "ponto--desligado"}`} aria-hidden="true" />
                 {atividade?.ligado ? "Agente ligado" : "Agente desligado"} · {num(ctx.analise.excecoes.length)} exceções · {dataCompleta(ctx.analise.parametros.dataReferencia)}
               </span>
-              <button className="botao-texto botao-texto--mudo" onClick={() => arquivoRef.current?.click()}>
-                Carregar outra lista
-              </button>
+              <span className="botoes">
+                <button className="botao-texto botao-texto--mudo" onClick={() => setTourAberto(true)}>
+                  Como avaliar
+                </button>
+                <button className="botao-texto botao-texto--mudo" onClick={() => arquivoRef.current?.click()}>
+                  Carregar outra lista
+                </button>
+              </span>
             </>
           ) : (
             <span>Carregando…</span>
@@ -265,6 +287,16 @@ export function App() {
           {aba === "metodo" && <Metodo />}
         </main>
       </div>
+      {tourAberto && atividade && (
+        <Tour
+          atividade={atividade}
+          irPara={(id) => {
+            fecharTour();
+            irPara(id);
+          }}
+          aoFechar={fecharTour}
+        />
+      )}
     </div>
   );
 }

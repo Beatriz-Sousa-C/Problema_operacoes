@@ -351,6 +351,22 @@ details > summary .mudo { font-weight: 400; }
 .placar { color: var(--tinta-2); font-size: 0.9375rem; max-width: 100ch; }
 .ganho { color: var(--ok-texto); font-size: 0.9375rem; }
 
+/* ---------- Tour da primeira visita ---------- */
+.tour {
+  position: fixed; z-index: 32;
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(580px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto;
+  background: var(--superficie); color: var(--tinta);
+  border: 1px solid var(--linha); border-radius: var(--raio); box-shadow: var(--sombra-alta);
+  padding: 24px; display: grid; gap: 18px; align-content: start;
+  animation: aparecer 180ms ease-out;
+}
+.tour h2 { font-size: 1.25rem; }
+.tour__passos { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.tour__passos li { display: flex; gap: 12px; align-items: flex-start; }
+.tour__passos .link-linha { font-size: 1rem; }
+.tour__passos p { font-size: 0.9375rem; margin-top: 2px; }
+
 /* ---------- Comparação ontem × hoje ---------- */
 .comparar-barras { display: grid; gap: 14px; max-width: 720px; }
 .barra { display: grid; gap: 6px; }

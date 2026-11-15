@@ -47,6 +47,8 @@ export function Hoje({ ctx, base, plano, dia, atividade: at, placar, aoTrocarPla
   const pronto = dia.total > 0 && dia.concluidos === dia.total;
 
   async function gerarAoVivo() {
+    const custo = `Refazer o plano usa o agente ao vivo: cerca de 20 chamadas ao modelo e 70 mil tokens da cota gratuita do dia (${num(plano?.grupos.length ?? 17)} grupos e 2 investigações). Se a cota acabar, os grupos restantes caem na política padrão e a tela avisa. Continuar?`;
+    if (!window.confirm(custo)) return;
     setGerando(true);
     setProgresso("Iniciando o agente…");
     try {

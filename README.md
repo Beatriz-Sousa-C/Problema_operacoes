@@ -2,10 +2,20 @@
 
 Solução para o **Problema 2 (Operações)** do Desafio AI-First do Gogroup: receber a lista de pedidos com exceção, priorizar com a capacidade real do time, investigar as causas e ajudar a resolver, com um agente de IA decidindo e redigindo as tratativas e uma pessoa aprovando o que envolve dinheiro.
 
-- **Aplicação:** _link do Vercel_
+- **Aplicação:** _link do Vercel_ <!-- substituir pelo link público depois do deploy -->
 - **Registro de decisões:** [DECISOES.md](DECISOES.md)
 
 > Os dados são sintéticos e foram fornecidos para o processo seletivo. Eles **não estão em texto puro neste repositório** (só a versão cifrada) e a aplicação nunca os serve como arquivo. Repositório e aplicação devem ser retirados do ar ao fim do processo.
+
+## Como avaliar em 5 minutos
+
+A aplicação abre com um tour de três passos (reabre em "Como avaliar", na lateral). O caminho:
+
+1. **Visão geral.** Os quatro números do dia (perda como é hoje, perda com a solução, cancelamentos a menos, causas de processo), o cartão do que o agente já preparou e o **briefing do dia** escrito por ele só com os números calculados, com botão para copiar. Abaixo, o gráfico das três ordens de atendimento e a tabela de causas.
+2. **Trabalho de hoje.** O agente decidiu cada grupo da fila (badge "Decidido pelo agente"), abriu os chamados em lote e escreveu as mensagens. Aprove um grupo no passo 1 e veja a mensagem ser liberada no passo 3. Abra um pedido para ver a **investigação do agente** passo a passo (o que ele consultou e o que cada consulta devolveu). Em "Exportar para quem executa", gere o lote: o XLSX tem uma aba por transportadora com o chamado do agente na primeira linha. "Pedir ao agente um plano novo" refaz tudo ao vivo (pede confirmação, porque gasta cota).
+3. **Ontem × hoje.** Clique em "Simular a lista de amanhã": a comparação mostra previsto × realizado (quanto do que a fila priorizou de fato saiu), as exceções novas, a reincidência e a tendência de cada causa. Com a lista real do dia seguinte, basta carregá-la.
+
+As premissas estão em **Método** e as alternativas descartadas, com números, em [DECISOES.md](DECISOES.md).
 
 ## Respostas, com números
 
@@ -182,7 +192,7 @@ Variáveis de ambiente (veja `.env.example`):
 ## Publicar no Vercel
 
 1. Importe o repositório no Vercel (framework detectado: Next.js).
-2. Em Settings > Environment Variables, adicione `DADOS_SENHA` e `GROQ_API_KEY` (e, se quiser, `NEXT_PUBLIC_REPO_URL`).
+2. Em Settings > Environment Variables, adicione `DADOS_SENHA`, `GROQ_API_KEY` e `NEXT_PUBLIC_REPO_URL` (o link deste repositório, exibido na aba Método), antes do primeiro deploy.
 3. Faça o deploy. O build roda `scripts/gerar-plano.ts`, que gera o plano do dia com o agente (alguns minutos, por causa do limite por minuto da cota gratuita). Sem a chave, o plano sai pela política e a tela avisa.
 
 ## Limitações conhecidas
@@ -192,4 +202,5 @@ Variáveis de ambiente (veja `.env.example`):
 - "Executar" uma ação significa registrá-la com a mensagem pronta: não há sistema real da empresa conectado. Fotos, aprovações e recusas ficam salvas no navegador de quem opera, não num servidor compartilhado.
 - O limite de uso fica na memória de cada instância do servidor: é aproximado (o Vercel pode rodar mais de uma cópia). O limite final é a própria cota da Groq; ao estourar, o app usa a política e não quebra.
 - Uma lista carregada pelo navegador é validada linha a linha: linhas com erro são ignoradas e listadas na Visão geral. Transportadora × UF fora da tabela usa SLA e frete estimados pela mediana da transportadora. Os feriados cobrem os nacionais de 2025 a 2027.
+- **O plano nasce no deploy.** Em produção, um agendamento diário (Vercel Cron ou equivalente) regeneraria o plano toda manhã com a lista do dia e o gravaria num armazenamento compartilhado, e o registro de aprovações sairia do navegador para esse mesmo lugar. Não foi feito porque exige mais um serviço, e o desafio avalia um dia de referência.
 - **No Windows**, rode `npm run build` a partir do caminho com a grafia real da pasta (por exemplo `D:\usuario\...`, e não `D:\Usuario\...`): com a grafia diferente, o Node carrega os módulos duas vezes e a pré-renderização do Next falha com `Cannot read properties of null (reading 'useContext')`. No Vercel (Linux) isso não acontece.

@@ -15,6 +15,17 @@ import { chaveAcao, chaveChamado, chaveMensagem, chaveRecusa, chaveTransportador
 import type { Registro } from "./registro";
 import { decididoIndividualmente, type Dia } from "./tratativas";
 
+/**
+ * Atraso dentro do prazo contratado existe só porque o site prometeu antes do
+ * contrato (data calculada em dias corridos). Não é falha da transportadora:
+ * a linha vai para ela com o aviso, para ninguém cobrar o que não é devido.
+ */
+export function observacaoTransportadora(e: { tipo_excecao: string; atrasoAtual: number; atrasoVsContrato: number }, causa: string): string {
+  const dentroDoContrato = e.tipo_excecao === "atraso_entrega" && e.atrasoAtual > 0 && e.atrasoVsContrato === 0;
+  const aviso = dentroDoContrato ? "Dentro do prazo contratado: não cobrar (a data prometida ao cliente estava errada)" : "";
+  return [aviso, causa].filter(Boolean).join(". ");
+}
+
 export type Celula = string | number | null;
 export interface Coluna {
   titulo: string;
@@ -226,10 +237,11 @@ export function montarExportacao(ctx: Contexto, dia: Dia, registro: Registro, pl
             dataCompleta(e.data_pedido),
             dataCompleta(e.data_prometida),
             dataCompleta(e.prazoContratado),
-            e.atrasoAtual,
+            // A transportadora responde pelo prazo do contrato, não pela data que o site prometeu.
+            e.atrasoVsContrato,
             dataCompleta(e.data_entrega),
             acoesTransportadora.join("; "),
-            causa,
+            observacaoTransportadora(e, causa),
           ],
         });
       }
@@ -292,7 +304,7 @@ export function montarExportacao(ctx: Contexto, dia: Dia, registro: Registro, pl
         col("Data do pedido", 14),
         col("Prometido ao cliente", 18),
         col("Prazo contratado", 16),
-        col("Atraso (dias úteis)", 16),
+        col("Atraso sobre o contrato (dias úteis)", 18),
         col("Entregue em", 12),
         col("Ação solicitada", 48),
         col("Observação", 40),

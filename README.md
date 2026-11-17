@@ -2,12 +2,12 @@
 
 Solução para o **Problema 2 (Operações)** do Desafio AI-First do Gogroup: receber a lista de pedidos com exceção, priorizar com a capacidade real do time, investigar as causas e ajudar a resolver, com um agente de IA decidindo e redigindo as tratativas e uma pessoa aprovando o que envolve dinheiro.
 
-- **Aplicação:** _link do Vercel_ <!-- substituir pelo link público depois do deploy -->
+- **Aplicação:** https://problema-operacoes.vercel.app/
 - **Registro de decisões:** [DECISOES.md](DECISOES.md)
 
 > Os dados são sintéticos e foram fornecidos para o processo seletivo. Eles **não estão em texto puro neste repositório** (só a versão cifrada) e a aplicação nunca os serve como arquivo. Repositório e aplicação devem ser retirados do ar ao fim do processo.
 
-## Como avaliar em 5 minutos
+## Como avaliar em 3 minutos
 
 A aplicação abre com um tour de três passos (reabre em "Como avaliar", na lateral). O caminho:
 
@@ -97,7 +97,7 @@ Não há integração com transportadoras, CD, financeiro ou atendimento, então
 | Aba | O que leva |
 |---|---|
 | Resumo | data da fila, lote, hora, modelo do agente, contagens e custo total aprovado |
-| Uma por transportadora | começa com o **chamado em lote escrito pelo agente** e lista os pedidos com acionamento liberado ou com ação aprovada que gera pedido de indenização ou sinistro (extravio, rastreio parado, devolvido, avaria): destino, exceção, datas prometida e contratada, atraso, ação solicitada, causa de processo |
+| Uma por transportadora | começa com o **chamado em lote escrito pelo agente** e lista os pedidos com acionamento liberado ou com ação aprovada que gera pedido de indenização ou sinistro (extravio, rastreio parado, devolvido, avaria): destino, exceção, datas prometida e contratada, atraso **sobre o prazo do contrato** (atrasos que só existem por causa da data prometida errada vêm marcados "não cobrar"), ação solicitada, causa de processo |
 | Reenvios e produção | reenvios, novas produções e substitutos aprovados: SKU, produto, quantidade, CD, turno, lote, impressora, custo, foto recebida, justificativa do agente |
 | Reembolsos e cancelamentos | ações financeiras aprovadas, com valor e justificativa |
 | Mensagens | mensagens liberadas por pedido, com status (a enviar ou enviada) e quem escreveu |

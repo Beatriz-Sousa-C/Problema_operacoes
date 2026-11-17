@@ -151,3 +151,12 @@ describe("nomes, CSV e planilha", () => {
     expect(buffer.length).toBeGreaterThan(10_000);
   });
 });
+
+describe("aba da transportadora", () => {
+  it("avisa quando o atraso está dentro do prazo contratado", async () => {
+    const { observacaoTransportadora } = await import("@/ui/exportacao");
+    expect(observacaoTransportadora({ tipo_excecao: "atraso_entrega", atrasoAtual: 3, atrasoVsContrato: 0 }, "")).toMatch(/não cobrar/);
+    expect(observacaoTransportadora({ tipo_excecao: "atraso_entrega", atrasoAtual: 3, atrasoVsContrato: 1 }, "Causa X")).toBe("Causa X");
+    expect(observacaoTransportadora({ tipo_excecao: "extravio", atrasoAtual: 3, atrasoVsContrato: 0 }, "")).toBe("");
+  });
+});

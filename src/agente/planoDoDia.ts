@@ -550,13 +550,15 @@ export function dadosDoBriefing(ctx: Contexto, plano: PlanoDoDia) {
       mensagens_informativas_enviadas_automaticamente: plano.resumo.mensagensAgora,
       chamados_em_lote_abertos_para_transportadoras_e_areas: plano.grupos.filter((g) => g.plano.chamado_lote).length,
     },
+    // Mesmo total do cartão da Visão geral: causas de operação + erro da data prometida.
+    total_de_causas_de_processo: causas.length + (auditoria.regraObservada ? 1 : 0),
     causas_de_processo: causas.slice(0, 6).map((c) => {
       const mes = projetarPorMes(c, p.janelaDias);
       return {
         onde: `${c.dimensao}: ${c.grupo}`,
         tipo: POLITICA[c.tipo].descricao,
         excecoes_observadas: c.observado,
-        vezes_acima_do_normal: r2(c.lift),
+        vezes_acima_do_normal: num1(c.lift),
         excecoes_evitadas_por_mes_se_corrigida: Math.round(mes.excecoes),
         economia_por_mes_se_corrigida: r2(mes.custo),
       };
@@ -595,11 +597,11 @@ export function briefingPorRegras(ctx: Contexto, plano: PlanoDoDia, geradoEm = n
     geradoEm,
     titulo: `Mudar a ordem da fila evita ${brlCurto(perdas.recuperado_pela_solucao)} em perdas nos próximos ${d.fila.dias_uteis_para_zerar} dias úteis`,
     paragrafos: [
-      `A fila tem ${d.fila.excecoes_abertas} exceções abertas e leva ${d.fila.dias_uteis_para_zerar} dias úteis para zerar com ${d.fila.capacidade_por_dia} tratativas por dia. Hoje entram ${d.fila.pedidos_de_hoje} pedidos, com ${brlCurto(d.fila.valor_em_jogo_hoje)} em jogo; tratá-los hoje em vez de deixá-los para o fim evita ${brlCurto(d.fila.perda_evitada_por_tratar_hoje)} de perda adicional.`,
+      `A fila tem ${d.fila.excecoes_abertas.toLocaleString("pt-BR")} exceções abertas e leva ${d.fila.dias_uteis_para_zerar} dias úteis para zerar com ${d.fila.capacidade_por_dia} tratativas por dia. Hoje entram ${d.fila.pedidos_de_hoje} pedidos, com ${brlCurto(d.fila.valor_em_jogo_hoje)} em jogo; tratá-los hoje em vez de deixá-los para o fim evita ${brlCurto(d.fila.perda_evitada_por_tratar_hoje)} de perda adicional.`,
       `Pela ordem de chegada, a perda esperada até zerar é de ${brlCurto(perdas.ordem_de_chegada_processo_atual)}; pelo custo de esperar, ${brlCurto(perdas.custo_de_esperar_solucao)}. São ${brlCurto(perdas.recuperado_pela_solucao)} recuperados e ${perdas.cancelamentos_a_menos} cancelamentos a menos, sem contratar ninguém. ${brlCurto(perdas.ja_comprometido_pelo_atraso_atual)} já estão comprometidos pelo atraso acumulado e nenhuma ordem recupera.`,
       `Dependem da liderança só as ${d.depende_de_aprovacao_humana.acoes_com_dinheiro_aguardando_aprovacao} ações com dinheiro (${brlCurto(d.depende_de_aprovacao_humana.custo_das_acoes_em_aprovacao)}). O resto já andou sozinho: ${d.ja_feito_automaticamente_sem_aprovacao.mensagens_informativas_enviadas_automaticamente} mensagens informativas saíram, ${d.ja_feito_automaticamente_sem_aprovacao.chamados_em_lote_abertos_para_transportadoras_e_areas} chamados em lote foram abertos e ${d.depende_do_cliente.pedidos_esperando_o_cliente_mandar_foto} pedidos esperam a foto que o cliente vai mandar.`,
       causas.length
-        ? `As exceções nascem em ${causas.length} causas de processo confirmadas. As maiores: ${causas
+        ? `As exceções nascem em ${d.total_de_causas_de_processo} causas de processo confirmadas. As maiores: ${causas
             .slice(0, 3)
             .map((c) => `${c.onde} (${c.tipo}, ${c.vezes_acima_do_normal} vezes acima do normal, ${brlCurto(c.economia_por_mes_se_corrigida)} por mês)`)
             .join("; ")}.`
